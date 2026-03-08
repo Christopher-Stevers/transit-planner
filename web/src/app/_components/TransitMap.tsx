@@ -464,8 +464,11 @@ export function TransitMap() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [isBirdsEye, setIsBirdsEye] = useState(false);
+  const [showTraffic, setShowTraffic] = useState(false);
+  const [trafficLoading, setTrafficLoading] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [populationGeoJSON, setPopulationGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [trafficGeoJSON, setTrafficGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null);
   const [popRawData, setPopRawData] = useState<PopRow[]>([]);
   const [drawMode, setDrawMode] = useState<DrawMode>("normal");
 
@@ -612,6 +615,29 @@ export function TransitMap() {
         }
       })
       .catch((err) => console.error("Failed to fetch population data:", err));
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── fetch traffic data from Supabase via API
+  useEffect(() => {
+    let cancelled = false;
+    setTrafficLoading(true);
+    fetch("/api/traffic")
+      .then((res) => res.json())
+      .then((fc: GeoJSON.FeatureCollection) => {
+        if (cancelled) return;
+        setTrafficGeoJSON(fc);
+        setTrafficLoading(false);
+        const map = mapRef.current;
+        if (map) {
+          const src = map.getSource("traffic") as mapboxgl.GeoJSONSource | undefined;
+          if (src) src.setData(fc);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch traffic data:", err);
+        if (!cancelled) setTrafficLoading(false);
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -910,6 +936,43 @@ export function TransitMap() {
         firstLabelLayer,
       );
 
+      // Traffic lines — colored by avg_speed
+      map.addSource("traffic", {
+        type: "geojson",
+        data: trafficGeoJSON ?? { type: "FeatureCollection" as const, features: [] },
+      });
+
+      map.addLayer(
+        {
+          id: "traffic-lines",
+          type: "line",
+          source: "traffic",
+          layout: { "line-join": "round", "line-cap": "round", visibility: "none" },
+          paint: {
+            "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 14, 4],
+            "line-color": [
+              "case",
+              ["!=", ["get", "avg_traffic"], null],
+              [
+                "match",
+                ["get", "traffic_color"],
+                "green",
+                "#22c55e",
+                "yellow",
+                "#f59e0b",
+                "red",
+                "#ef4444",
+                "#22c55e"
+              ],
+              "#22c55e"
+            ],
+
+            "line-opacity": 0.75,
+          },
+        },
+        firstLabelLayer,
+      );
+
       // Route lines + stops
       ROUTES.forEach((route) => {
         map.addSource(`route-${route.id}`, {
@@ -1044,6 +1107,15 @@ export function TransitMap() {
     }
   }, [showHeatmap, mapLoaded]);
 
+  // ── traffic lines visibility toggle
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (map.getLayer("traffic-lines")) {
+      map.setLayoutProperty("traffic-lines", "visibility", showTraffic ? "visible" : "none");
+    }
+  }, [showTraffic, mapLoaded]);
+
   // ── generated route layer (re-renders when route or stops change)
   useEffect(() => {
     const map = mapRef.current;
@@ -1123,7 +1195,7 @@ export function TransitMap() {
       minzoom: 10,
       paint: {
         "circle-radius": 5,
-        "circle-color": ["case", ["==", ["get", "disabled"], true], "#d1d5db", "#ffffff"],
+        "circle-color": ["case", ["==", ["get", "disabled"], true], "#22c55e", "#ffffff"],
         "circle-stroke-color": [
           "case",
           ["==", ["get", "disabled"], true],
@@ -1237,6 +1309,25 @@ export function TransitMap() {
             style={{ background: showHeatmap ? "#ef4444" : "#d1d5db" }}
           />
           Population Density
+        </button>
+
+        {/* Traffic toggle */}
+        <button
+          onClick={() => setShowTraffic((v) => !v)}
+          disabled={trafficLoading}
+          className={`pointer-events-auto flex h-[52px] items-center gap-3 rounded-xl border border-[#D7D7D7] bg-white px-6 text-base font-normal shadow-sm transition-all disabled:cursor-wait ${
+            showTraffic ? "text-stone-700" : "text-stone-400"
+          }`}
+        >
+          {trafficLoading ? (
+            <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-stone-300 border-t-stone-500" />
+          ) : (
+            <span
+              className="h-3 w-3 shrink-0 rounded-full"
+              style={{ background: showTraffic ? "#f59e0b" : "#d1d5db" }}
+            />
+          )}
+          Traffic
         </button>
 
         {/* Draw toolbar — wrapped in relative so the badge can anchor to it */}
