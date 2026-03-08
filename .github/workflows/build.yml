@@ -90,28 +90,3 @@ jobs:
           labels: ${{ steps.meta-web-backend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-
-      - name: Extract metadata for server image
-        id: meta-server
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/server
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push server image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.web-backend
-          push: true
-          tags: ${{ steps.meta-server.outputs.tags }}
-          labels: ${{ steps.meta-server.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
