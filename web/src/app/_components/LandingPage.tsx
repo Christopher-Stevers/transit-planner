@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, Suspense, useMemo } from "react";
 import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import * as THREE from "three";
@@ -171,14 +172,22 @@ function Scene() {
 
 // ── Landing page ──────────────────────────────────────────────────────────────
 export default function LandingPage() {
+  const router = useRouter();
   const [ready, setReady] = useState(false);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     setReady(true);
     const t = setTimeout(() => setVisible(true), 60);
+    // Prefetch map page JS bundle + heavy data assets
+    router.prefetch("/map");
+    void Promise.allSettled([
+      fetch("/Neighbourhoods - 4326.geojson"),
+      fetch("/api/population"),
+      fetch("/api/traffic"),
+    ]);
     return () => clearTimeout(t);
-  }, []);
+  }, [router]);
 
   const fadeUp = (delay: string) => ({
     opacity: visible ? 1 : 0,
