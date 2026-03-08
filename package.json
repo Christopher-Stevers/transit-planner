@@ -14,7 +14,7 @@
     "dev:server": "npm --workspace express_server run dev",
     "build": "npm --workspace web run build",
     "lint": "npm --workspace web run lint",
-    "typecheck": "npm --workspace web run typecheck",
+    "typecheck": "npm --workspace web run typecheck"
   },
   "packageManager": "npm@10.9.2",
   "dependencies": {
