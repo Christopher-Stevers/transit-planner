@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 
-const PYTHON_URL = process.env.PYTHON_SERVER_URL ?? "http://localhost:8000";
+const PYTHON_URL = process.env.PYTHON_SERVER_URL ?? "https://9e5b-192-159-180-156.ngrok-free.app";
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as unknown;
