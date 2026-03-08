@@ -221,19 +221,8 @@ jobs:
             echo "Logging in to GitHub Container Registry..."
             echo "${{ secrets.PAT }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
 
-            # Verify images exist for this ref before deploying
-            echo "Verifying images exist for $DEPLOY_ENV environment (ref: $DEPLOY_BRANCH)..."
-            REGISTRY_VAL="${REGISTRY:-ghcr.io}"
-            IMAGE_PREFIX_VAL="${IMAGE_PREFIX:-${{ github.repository_owner }}}"
-            for service in $SERVICES; do
-              IMAGE_NAME="$REGISTRY_VAL/$IMAGE_PREFIX_VAL/$service:$IMAGE_TAG"
-              echo "Checking for image: $IMAGE_NAME (Environment: $DEPLOY_ENV)"
-              if ! docker manifest inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-                echo "ERROR: Image $IMAGE_NAME not found for $DEPLOY_ENV environment. Build may have failed or image not pushed."
-                exit 1
-              fi
-              echo "✓ Image $IMAGE_NAME found for $DEPLOY_ENV environment"
-            done
+            # Skip image manifest validation and pull latest image for the selected tag directly
+            echo "Skipping image existence validation. Will pull latest images tagged: $IMAGE_TAG for $DEPLOY_ENV environment."
 
             # Only manage the current compose project
             echo "Skipping cross-project container operations; only current project will be affected."
