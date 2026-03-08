@@ -10,7 +10,6 @@ type DrawMode = "normal" | "select" | "boundary";
 import {
   GENERATED_ROUTES,
   NEIGHBOURHOOD_DATA,
-  POPULATION_POINTS,
   ROUTES,
   type GeneratedRoute,
   type Route,
@@ -410,6 +409,7 @@ export function TransitMap() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [populationGeoJSON, setPopulationGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null);
   const [drawMode, setDrawMode] = useState<DrawMode>("normal");
   const [hasBoundary, setHasBoundary] = useState(false);
   const [selectedNeighbourhoods, setSelectedNeighbourhoods] = useState<Set<string>>(new Set());
@@ -502,6 +502,45 @@ export function TransitMap() {
       return next;
     });
   }
+
+  // ── fetch population data from Supabase via API
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/population")
+      .then((res) => res.json())
+      .then((rows: { latitude: number; longitude: number; population: number; area: number }[]) => {
+        if (cancelled) return;
+        // Compute population density and normalize to 0–1 weight
+        const densities = rows.map((r) => (r.area > 0 ? r.population / r.area : 0));
+        let maxDensity = 1;
+        for (const d of densities) {
+          if (d > maxDensity) maxDensity = d;
+        }
+
+        const features: GeoJSON.Feature<GeoJSON.Point>[] = rows.map((r, i) => ({
+          type: "Feature",
+          properties: {
+            weight: densities[i]! / maxDensity,
+            population: r.population,
+            area: r.area,
+            density: densities[i]!,
+          },
+          geometry: { type: "Point", coordinates: [r.longitude, r.latitude] },
+        }));
+
+        const fc: GeoJSON.FeatureCollection = { type: "FeatureCollection", features };
+        setPopulationGeoJSON(fc);
+
+        // Update the map source if it already exists
+        const map = mapRef.current;
+        if (map) {
+          const src = map.getSource("population") as mapboxgl.GeoJSONSource | undefined;
+          if (src) src.setData(fc);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch population data:", err));
+    return () => { cancelled = true; };
+  }, []);
 
   // ── init map
   useEffect(() => {
@@ -737,40 +776,30 @@ export function TransitMap() {
         firstLabelLayer,
       );
 
-      // Population heatmap
+      // Population heatmap — data may arrive before or after map load
       map.addSource("population", {
         type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: POPULATION_POINTS.map((p) => ({
-            type: "Feature" as const,
-            properties: { weight: p.weight },
-            geometry: { type: "Point" as const, coordinates: p.coords },
-          })),
-        },
+        data: populationGeoJSON ?? { type: "FeatureCollection" as const, features: [] },
       });
 
+      // Population circle points — always visible
       map.addLayer(
         {
-          id: "population-heatmap",
-          type: "heatmap",
+          id: "population-points",
+          type: "circle",
           source: "population",
           paint: {
-            "heatmap-weight": ["interpolate", ["linear"], ["get", "weight"], 0, 0, 1, 1],
-            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1, 15, 3],
-            "heatmap-color": [
-              "interpolate",
-              ["linear"],
-              ["heatmap-density"],
-              0,   "rgba(0,0,255,0)",
-              0.2, "rgba(33,102,172,0.4)",
-              0.4, "rgba(103,169,207,0.6)",
-              0.6, "rgba(253,219,99,0.75)",
-              0.8, "rgba(239,138,98,0.85)",
-              1,   "rgba(178,24,43,0.9)",
+            "circle-radius": [
+              "interpolate", ["linear"], ["zoom"],
+              8, 1.5,
+              11, 3,
+              14, 6,
+              18, 12,
             ],
-            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 20, 15, 70],
-            "heatmap-opacity": 0.7,
+            "circle-color": "#ef4444",
+            "circle-opacity": 0.6,
+            "circle-stroke-width": 0.5,
+            "circle-stroke-color": "rgba(255,255,255,0.4)",
           },
         },
         firstLabelLayer,
@@ -872,15 +901,14 @@ export function TransitMap() {
     };
   }, []);
 
-  // ── heatmap visibility toggle
+  // ── population points visibility toggle
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded || !map.getLayer("population-heatmap")) return;
-    map.setLayoutProperty(
-      "population-heatmap",
-      "visibility",
-      showHeatmap ? "visible" : "none",
-    );
+    if (!map || !mapLoaded) return;
+    const vis = showHeatmap ? "visible" : "none";
+    if (map.getLayer("population-points")) {
+      map.setLayoutProperty("population-points", "visibility", vis);
+    }
   }, [showHeatmap, mapLoaded]);
 
   // ── generated route layer (re-renders when route or stops change)
