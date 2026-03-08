@@ -123,7 +123,7 @@ function NeighbourhoodPanel({
   const [imgLoaded, setImgLoaded] = useState(false);
 
   return (
-    <div className="pointer-events-auto w-72 overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ border: "0.93px solid #BEB7B4" }}>
+    <div className="pointer-events-auto w-72 overflow-hidden rounded-2xl bg-white shadow-sm" style={{ border: "0.93px solid #BEB7B4" }}>
       {/* Preview image */}
       <div className="relative h-36">
         {!imgLoaded && (
@@ -144,13 +144,13 @@ function NeighbourhoodPanel({
       </div>
 
       <div className="px-5 pt-4 pb-5 space-y-4">
-        <h2 className="text-xl font-semibold text-stone-800">{name}</h2>
+        <h2 className="text-base font-semibold text-stone-800">{name}</h2>
 
         {data ? (
           <>
             <div className="space-y-2.5">
               {/* Traffic */}
-              <div className="flex justify-between text-xs">
+              <div className="flex justify-between text-sm">
                 <span className="text-stone-500">Traffic levels</span>
                 <span className="font-semibold" style={{ color: TRAFFIC_COLOR[data.trafficLevel] }}>
                   {data.trafficLevel}
@@ -158,20 +158,20 @@ function NeighbourhoodPanel({
               </div>
 
               {/* Employment */}
-              <div className="flex justify-between text-xs">
+              <div className="flex justify-between text-sm">
                 <span className="text-stone-500">Employment density</span>
                 <span className="font-semibold text-stone-800">{data.employmentDensity}</span>
               </div>
 
               {/* Population */}
-              <div className="flex justify-between text-xs">
+              <div className="flex justify-between text-sm">
                 <span className="text-stone-500">Population density</span>
                 <span className="font-semibold text-stone-800">{data.populationDensity.toLocaleString()} / km²</span>
               </div>
 
               {/* Connectivity */}
               <div>
-                <div className="flex justify-between text-xs mb-1">
+                <div className="flex justify-between text-sm mb-1">
                   <span className="text-stone-500">How connected it is</span>
                   <span className="font-semibold text-stone-800">{data.connectivityScore}/10</span>
                 </div>
@@ -185,18 +185,14 @@ function NeighbourhoodPanel({
                 <p className="mb-2 text-[11px] font-semibold tracking-widest text-stone-400 uppercase">
                   Lines in the area
                 </p>
-                <div className="flex flex-wrap gap-1.5">
+                <ul className="flex flex-wrap gap-x-4 gap-y-1.5">
                   {transitLines.map((r) => (
-                    <span
-                      key={r.id}
-                      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-                      style={{ background: r.color + "22", color: r.color }}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: r.color }} />
-                      {r.shortName}
-                    </span>
+                    <li key={r.id} className="flex items-center gap-2 text-sm text-stone-600">
+                      <span className="h-2.5 w-6 shrink-0 rounded-full" style={{ background: r.color }} />
+                      {r.name.split(" – ")[0]}
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             )}
           </>
@@ -215,7 +211,7 @@ function RoutePanel({ route, selectedStop, stationPopulations, onClose }: { rout
   const popServed = rawPop !== undefined ? Math.max(2314, rawPop) : undefined;
 
   return (
-    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-[30px] bg-white shadow-2xl" style={{ border: "0.93px solid #BEB7B4" }}>
+    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-[30px] bg-white" style={{ border: "0.93px solid #BEB7B4" }}>
       <div className="flex items-start justify-between px-5 pt-5 pb-4">
         <div className="flex items-center gap-3">
           <span
@@ -308,7 +304,7 @@ function GeneratedRoutePanel({
     stats.percentageChance > 65 ? "#22c55e" : stats.percentageChance > 40 ? "#f59e0b" : "#ef4444";
 
   return (
-    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-[30px] bg-white shadow-2xl" style={{ border: "0.93px solid #BEB7B4" }}>
+    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-[30px] bg-white" style={{ border: "0.93px solid #BEB7B4" }}>
       {/* Header */}
       <div className="flex items-start justify-between px-5 pt-5 pb-4">
         <div className="flex items-center gap-3">
@@ -346,34 +342,34 @@ function GeneratedRoutePanel({
           Route Analysis
         </p>
         <div className="space-y-3">
-          <div className="flex justify-between text-xs">
+          <div className="flex justify-between text-sm">
             <span className="text-stone-500">Cost</span>
             <span className="font-semibold text-stone-800">{stats.cost}</span>
           </div>
 
           <div>
-            <div className="flex justify-between text-xs">
+            <div className="flex justify-between text-sm">
               <span className="text-stone-500">Timeline</span>
               <span className="font-semibold text-stone-800">{stats.timeline}</span>
             </div>
-            <div className="flex justify-between text-[11px] mt-0.5">
+            <div className="flex justify-between text-xs mt-0.5">
               <span className="italic text-stone-400">w/ contingency</span>
               <span className="text-stone-500">{stats.costedTimeline}</span>
             </div>
           </div>
 
-          <div className="flex justify-between text-xs">
+          <div className="flex justify-between text-sm">
             <span className="text-stone-500">Minutes Saved</span>
             <span className="font-semibold text-stone-800">{stats.minutesSaved} min/trip</span>
           </div>
 
-          <div className="flex justify-between text-xs">
+          <div className="flex justify-between text-sm">
             <span className="text-stone-500">Dollars Saved</span>
             <span className="font-semibold text-stone-800">{stats.dollarsSaved}</span>
           </div>
 
           <div>
-            <div className="flex justify-between text-xs">
+            <div className="flex justify-between text-sm">
               <span className="text-stone-500">Approval Chance</span>
               <span className="font-semibold" style={{ color: chanceColor }}>
                 {stats.percentageChance}%
@@ -383,7 +379,7 @@ function GeneratedRoutePanel({
           </div>
 
           <div>
-            <div className="flex justify-between text-xs">
+            <div className="flex justify-between text-sm">
               <span className="text-stone-500">PR Nightmare Score</span>
               <span className="font-semibold" style={{ color: prColor }}>
                 {stats.prNightmareScore}/10
