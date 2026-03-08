@@ -10,7 +10,7 @@ import {
   type GeneratedRoute,
   type Route,
 } from "~/app/map/mock-data";
-import { routeToGeoJSON, stopsToGeoJSON } from "./map/geo";
+import { routeToGeoJSON, stopsToGeoJSON, geomBBox } from "./map/geo";
 import { NeighbourhoodPanel } from "./map/NeighbourhoodPanel";
 import { RoutePanel } from "./map/RoutePanel";
 import { GeneratedRoutePanel } from "./map/GeneratedRoutePanel";
@@ -31,7 +31,9 @@ export function TransitMap() {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedStop, setSelectedStop] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [generatedRoute, setGeneratedRoute] = useState<GeneratedRoute | null>(null);
+  const [selectedGeneratedStop, setSelectedGeneratedStop] = useState<string | null>(null);
   const [disabledStops, setDisabledStops] = useState<Set<string>>(new Set());
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [isBirdsEye, setIsBirdsEye] = useState(false);
@@ -137,6 +139,79 @@ export function TransitMap() {
   useEffect(() => {
     stationPopupRef.current = stationPopup;
   }, [stationPopup]);
+
+  async function handleGenerateRoute() {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    setGeneratedRoute(null);
+    setDisabledStops(new Set());
+
+    const stops: { name: string; coords: [number, number] }[] = [];
+
+    // One stop per selected neighbourhood at its bbox centroid
+    const geoJSON = neighbourhoodsGeoJSONRef.current;
+    if (geoJSON) {
+      for (const id of selectedNeighbourhoodsRef.current) {
+        const feat = geoJSON.features.find((f) => f.properties?.AREA_SHORT_CODE === id);
+        if (!feat?.geometry) continue;
+        const [minX, minY, maxX, maxY] = geomBBox(feat.geometry);
+        const name = (feat.properties?.AREA_NAME as string | undefined) ?? id;
+        stops.push({ name, coords: [(minX + maxX) / 2, (minY + maxY) / 2] });
+      }
+    }
+
+    // One stop per selected station (use existing coords)
+    const allRoutes = [...ROUTES, ...customLinesRef.current];
+    for (const key of selectedStationsRef.current) {
+      const [stationName, routeId] = key.split("::");
+      if (!stationName || !routeId) continue;
+      const route = allRoutes.find((r) => r.id === routeId);
+      const allStops = [...(route?.stops ?? []), ...(routeExtraStopsRef.current.get(routeId) ?? [])];
+      const found = allStops.find((s) => s.name === stationName);
+      if (found) stops.push({ name: found.name, coords: found.coords });
+    }
+
+    // If a boundary was drawn, add its centroid as a waypoint stop
+    const draw = drawRef.current;
+    if (draw && hasBoundary) {
+      const features = draw.getAll().features;
+      const poly = features[0];
+      if (poly?.geometry) {
+        const [minX, minY, maxX, maxY] = geomBBox(poly.geometry as GeoJSON.Geometry);
+        stops.push({ name: "Selected Area", coords: [(minX + maxX) / 2, (minY + maxY) / 2] });
+      }
+    }
+
+    if (stops.length < 2) return;
+
+    // Order west → east by longitude so the line flows sensibly
+    stops.sort((a, b) => a.coords[0] - b.coords[0]);
+
+    const route: GeneratedRoute = {
+      id: `generated-${Date.now()}`,
+      name: "Optimized Route",
+      shortName: "OPT",
+      color: "#e63946",
+      textColor: "#ffffff",
+      type: "subway",
+      description: `Connects ${stops.map((s) => s.name).join(" → ")}`,
+      frequency: "Every 5 min",
+      stops,
+      stats: {
+        cost: "$1.8B",
+        timeline: "7 years",
+        costedTimeline: "2033",
+        minutesSaved: 12,
+        dollarsSaved: "$3.1M/yr",
+        percentageChance: 72,
+        prNightmareScore: 4,
+      },
+    };
+
+    await new Promise((r) => setTimeout(r, 1800 + Math.random() * 1200));
+    setGeneratedRoute(route);
+    setIsGenerating(false);
+  }
 
   function snapshotHistory() {
     historyRef.current.push({
@@ -915,7 +990,7 @@ export function TransitMap() {
         type: "FeatureCollection",
         features: generatedRoute.stops.map((s) => ({
           type: "Feature",
-          properties: { disabled: disabledStops.has(s.name) },
+          properties: { name: s.name, disabled: disabledStops.has(s.name) },
           geometry: { type: "Point", coordinates: s.coords },
         })),
       } as GeoJSON.FeatureCollection<GeoJSON.Point>,
@@ -975,6 +1050,16 @@ export function TransitMap() {
     });
 
     map.on("click", "generated-route-line", () => setSelectedRoute(null));
+
+    map.on("click", "generated-stops-dot", (e) => {
+      const name = e.features?.[0]?.properties?.name as string | undefined;
+      if (!name) return;
+      setSelectedGeneratedStop((prev) => (prev === name ? null : name));
+      map.flyTo({ center: e.lngLat, zoom: Math.max(map.getZoom(), 13), duration: 400 });
+    });
+
+    map.on("mouseenter", "generated-stops-dot", () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", "generated-stops-dot", () => { map.getCanvas().style.cursor = ""; });
 
     map.on("mouseenter", "generated-route-line", () => {
       map.getCanvas().style.cursor = "pointer";
@@ -1429,7 +1514,11 @@ export function TransitMap() {
           <GeneratedRoutePanel
             route={generatedRoute!}
             disabledStops={disabledStops}
+            selectedStop={selectedGeneratedStop}
             onToggleStop={handleToggleStop}
+            onSelectStop={setSelectedGeneratedStop}
+            onRename={(name: string) => setGeneratedRoute((r) => r ? { ...r, name } : r)}
+            onDelete={() => setGeneratedRoute(null)}
             onClose={() => setGeneratedRoute(null)}
           />
         ) : null}
@@ -1475,10 +1564,25 @@ export function TransitMap() {
       {hasSelection && (
         <div className="pointer-events-none absolute bottom-16 left-0 right-0 flex justify-center">
           <button
-            className="pointer-events-auto flex h-13 items-center gap-3 rounded-xl bg-stone-900 px-8 text-base font-medium text-white shadow-lg transition-all hover:bg-stone-800"
+            onClick={() => void handleGenerateRoute()}
+            disabled={isGenerating}
+            className="pointer-events-auto flex h-13 items-center gap-3 rounded-xl bg-stone-900 px-8 text-base font-medium text-white shadow-lg transition-all hover:bg-stone-800 disabled:cursor-not-allowed"
           >
-            <span className="text-xl">✦</span>
-            Generate Route
+            {isGenerating ? (
+              <>
+                <span className="flex gap-[3px] items-center">
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:0ms]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:300ms]" />
+                </span>
+                Generating route…
+              </>
+            ) : (
+              <>
+                <span className="text-xl">✦</span>
+                Generate Route
+              </>
+            )}
           </button>
         </div>
       )}
