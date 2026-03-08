@@ -182,34 +182,91 @@ export function TransitMap() {
       }
     }
 
-    if (stops.length < 2) return;
+    if (stops.length < 2) { setIsGenerating(false); return; }
 
     // Order west → east by longitude so the line flows sensibly
     stops.sort((a, b) => a.coords[0] - b.coords[0]);
 
-    const route: GeneratedRoute = {
+    // Population within 2 km of each generated stop (from loaded census data)
+    const stopPopulations = stops.map((stop) => ({
+      name: stop.name,
+      pop: popRawData.reduce((sum, row) =>
+        haversineKm(stop.coords, [row.longitude, row.latitude]) <= 2 ? sum + row.population : sum, 0),
+    }));
+
+    // Total route length in km
+    const routeLengthKm = stops.slice(1).reduce(
+      (sum, s, i) => sum + haversineKm(stops[i]!.coords, s.coords), 0
+    );
+
+    // Neighbourhood names for context
+    const neighbourhoodNames = [...selectedNeighbourhoodsRef.current].map((id) => {
+      const feat = neighbourhoodsGeoJSONRef.current?.features.find(
+        (f) => f.properties?.AREA_SHORT_CODE === id
+      );
+      return (feat?.properties?.AREA_NAME as string | undefined) ?? id;
+    });
+
+    const stopList = stops.map((s) => s.name).join(" → ");
+    const popLines = stopPopulations
+      .map((s) => `  - ${s.name}: ~${(Math.round(s.pop / 100) * 100).toLocaleString()} residents`)
+      .join("\n");
+
+    const message = [
+      `Analyze this proposed Toronto subway route and produce realistic planning estimates.`,
+      `Route: ${stopList}`,
+      `Total length: ${routeLengthKm.toFixed(1)} km | Stops: ${stops.length}`,
+      neighbourhoodNames.length > 0 ? `Neighbourhoods served: ${neighbourhoodNames.join(", ")}` : null,
+      `Population within 2 km of each stop:\n${popLines}`,
+      `\nReturn ONLY this JSON (no markdown, no extra text):\n{"description":"<2 sentences about route purpose>","cost":"<e.g. $2.1B>","timeline":"<e.g. 8 years>","costedTimeline":"<e.g. 2034>","minutesSaved":<number>,"dollarsSaved":"<e.g. $4.2M/yr>","percentageChance":<0-100>,"prNightmareScore":<0-10>}`,
+    ].filter(Boolean).join("\n");
+
+    // Defaults in case Backboard call fails
+    let description = `Connects ${stopList}`;
+    let stats: GeneratedRoute["stats"] = {
+      cost: "$1.8B", timeline: "7 years", costedTimeline: "2033",
+      minutesSaved: 12, dollarsSaved: "$3.1M/yr", percentageChance: 72, prNightmareScore: 4,
+    };
+
+    try {
+      const res = await fetch("/api/backboard/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          systemPrompt: "You are a Toronto transit planning analyst. Respond with ONLY valid JSON, no markdown, no extra text.",
+          maxTokens: 500,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { response: string };
+        const raw = data.response.trim().replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
+        const ai = JSON.parse(raw) as Partial<GeneratedRoute["stats"] & { description: string }>;
+        if (ai.description) description = ai.description;
+        stats = {
+          cost:             ai.cost             ?? stats.cost,
+          timeline:         ai.timeline         ?? stats.timeline,
+          costedTimeline:   ai.costedTimeline   ?? stats.costedTimeline,
+          minutesSaved:     ai.minutesSaved      ?? stats.minutesSaved,
+          dollarsSaved:     ai.dollarsSaved      ?? stats.dollarsSaved,
+          percentageChance: ai.percentageChance  ?? stats.percentageChance,
+          prNightmareScore: ai.prNightmareScore  ?? stats.prNightmareScore,
+        };
+      }
+    } catch { /* fall back to defaults */ }
+
+    setGeneratedRoute({
       id: `generated-${Date.now()}`,
       name: "Optimized Route",
       shortName: "OPT",
       color: "#e63946",
       textColor: "#ffffff",
       type: "subway",
-      description: `Connects ${stops.map((s) => s.name).join(" → ")}`,
+      description,
       frequency: "Every 5 min",
       stops,
-      stats: {
-        cost: "$1.8B",
-        timeline: "7 years",
-        costedTimeline: "2033",
-        minutesSaved: 12,
-        dollarsSaved: "$3.1M/yr",
-        percentageChance: 72,
-        prNightmareScore: 4,
-      },
-    };
-
-    await new Promise((r) => setTimeout(r, 1800 + Math.random() * 1200));
-    setGeneratedRoute(route);
+      stats,
+    });
     setIsGenerating(false);
   }
 

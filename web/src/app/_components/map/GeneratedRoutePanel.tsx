@@ -65,9 +65,6 @@ export function GeneratedRoutePanel({
             {route.shortName}
           </span>
           <div className="min-w-0">
-            <p className="flex items-center gap-1 text-[11px] font-medium tracking-widest text-stone-400 uppercase">
-              <span>✦</span> AI Generated
-            </p>
             {editing ? (
               <input
                 autoFocus
