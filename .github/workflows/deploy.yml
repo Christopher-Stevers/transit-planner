@@ -160,30 +160,7 @@ jobs:
              _v='${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}'; echo "NEXT_PUBLIC_MAPBOX_TOKEN=$_v" >> .env
 
 
-             # Truncate non-user tables only for development deployments
-             if [ "$DEPLOY_REF" = "development" ]; then
-               echo "Development deploy: truncating non-user tables..."
-               SUPABASE_DB_URL=$(grep '^SUPABASE_DB_URL=' .env | cut -d'=' -f2-)
-               SAFE_DATABASE_URL=$(echo "$SUPABASE_DB_URL" | sed -E 's#(://[^:]+):[^@]+@#\1:***@#')
-               echo "Database URL (safe): $SAFE_DATABASE_URL"
-               docker run --rm \
-                 -v "$PWD":/workspace \
-                 -w /workspace \
-                 postgres:16 \
-                 psql "$SUPABASE_DB_URL" -f scripts/truncate_non_user_tables.sql
-               echo "Truncation complete."
 
-               echo "Development deploy: running seed script..."
-               docker run --rm \
-                 -v "$PWD":/workspace \
-                 -w /workspace \
-                 -e DATABASE_URL="$SUPABASE_DB_URL" \
-                 golang:1.24 \
-                 go run ./cmd/seed
-               echo "Seed complete."
-             else
-               echo "Skipping truncation (not development)."
-             fi
 
 
 
