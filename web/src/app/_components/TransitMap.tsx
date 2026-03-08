@@ -313,7 +313,7 @@ function RoutePanel({
           </span>
           <div>
             <p className="text-[11px] font-medium tracking-widest text-stone-400 uppercase">
-              {selectedStop ? route.name : TYPE_LABEL[route.type]}
+              {selectedStop ? route.name :[route.type]}
             </p>
             <h2 className="text-base font-semibold leading-tight text-stone-800">{selectedStop ?? route.name}</h2>
           </div>
@@ -585,19 +585,24 @@ function StationPopup({
   popup,
   allRoutes,
   isDeletable,
+  connectedRoutes,
   onClose,
   onDelete,
   onAddTransfer,
+  onRemoveTransfer,
 }: {
   popup: { name: string; routeId: string; x: number; y: number };
   allRoutes: Route[];
   isDeletable: boolean;
+  connectedRoutes: Route[];
   onClose: () => void;
   onDelete: () => void;
   onAddTransfer: (targetRouteId: string) => void;
+  onRemoveTransfer: (targetRouteId: string) => void;
 }) {
   const currentRoute = allRoutes.find((r) => r.id === popup.routeId);
-  const otherRoutes = allRoutes.filter((r) => r.id !== popup.routeId);
+  const connectedIds = new Set(connectedRoutes.map((r) => r.id));
+  const transferableRoutes = allRoutes.filter((r) => r.id !== popup.routeId && !connectedIds.has(r.id));
   return (
     <div
       className="pointer-events-auto absolute z-20 w-52 rounded-xl border border-stone-200 bg-white p-3 shadow-lg"
@@ -639,13 +644,34 @@ function StationPopup({
           </button>
         </div>
       </div>
-      {otherRoutes.length > 0 && (
+      {connectedRoutes.length > 0 && (
+        <div className="mb-2">
+          <p className="mb-1.5 text-[10px] font-semibold tracking-widest text-stone-400 uppercase">
+            Connections
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {connectedRoutes.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => onRemoveTransfer(r.id)}
+                title={`Remove connection to ${r.name}`}
+                className="group flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold transition-opacity hover:opacity-70"
+                style={{ background: r.color, color: r.textColor }}
+              >
+                <span>{r.shortName}</span>
+                <span className="opacity-60 group-hover:opacity-100">×</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {transferableRoutes.length > 0 && (
         <div>
           <p className="mb-1.5 text-[10px] font-semibold tracking-widest text-stone-400 uppercase">
             Add transfer to
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {otherRoutes.map((r) => (
+            {transferableRoutes.map((r) => (
               <button
                 key={r.id}
                 onClick={() => onAddTransfer(r.id)}
@@ -785,6 +811,8 @@ export function TransitMap() {
   const justCompletedBoundaryRef = useRef(false);
   // Cache for the full neighbourhood GeoJSON (needed for geometry lookups on click)
   const neighbourhoodsGeoJSONRef = useRef<GeoJSON.FeatureCollection | null>(null);
+  const didDragStopRef = useRef(false); // suppresses click after a drag
+  const stationPopupRef = useRef<typeof stationPopup>(null);
 
   useEffect(() => {
     drawModeRef.current = drawMode;
@@ -805,6 +833,10 @@ export function TransitMap() {
   useEffect(() => {
     routeExtraStopsRef.current = routeExtraStops;
   }, [routeExtraStops]);
+
+  useEffect(() => {
+    stationPopupRef.current = stationPopup;
+  }, [stationPopup]);
 
   function snapshotHistory() {
     historyRef.current.push({
@@ -1304,7 +1336,7 @@ export function TransitMap() {
               "#22c55e"
             ],
 
-            "line-opacity": 0.75,
+            "line-opacity": 0.5,
           },
         },
         firstLabelLayer,
@@ -1393,6 +1425,7 @@ export function TransitMap() {
 
         // Station dot click — show popup and open sidebar
         map.on("click", `stops-dot-${route.id}`, (e) => {
+          if (didDragStopRef.current) { didDragStopRef.current = false; return; }
           const name = e.features?.[0]?.properties?.name as string | undefined;
           if (!name) return;
           e.originalEvent.stopPropagation();
@@ -1450,11 +1483,35 @@ export function TransitMap() {
       // Close popup when map moves
       map.on("move", () => setStationPopup(null));
 
+      // Double-click exits add-station mode
+      map.on("dblclick", (e) => {
+        if (addStationToLineRef.current) {
+          e.preventDefault();
+          setAddStationToLine(null);
+        }
+      });
+
       setMapLoaded(true);
     });
 
     // Escape cancels an in-progress boundary draw
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && addStationToLineRef.current) {
+        setAddStationToLine(null);
+        return;
+      }
+      if (e.key === "Backspace" || e.key === "Delete") {
+        const popup = stationPopupRef.current;
+        if (!popup) return;
+        const extraStops = routeExtraStopsRef.current.get(popup.routeId) ?? [];
+        const isCustomLine = customLinesRef.current.some((r) => r.id === popup.routeId);
+        const isDeletable = isCustomLine || extraStops.some((s) => s.name === popup.name);
+        if (!isDeletable) return;
+        e.preventDefault();
+        handleDeleteStop(popup.name, popup.routeId);
+        setStationPopup(null);
+        return;
+      }
       if (e.key === "Escape" && drawModeRef.current === "boundary") {
         draw.deleteAll();
         draw.changeMode("simple_select");
@@ -1653,6 +1710,7 @@ export function TransitMap() {
       map.on("mouseenter", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = "pointer"; map.setPaintProperty(`route-line-${route.id}`, "line-width", 10); });
       map.on("mouseleave", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = ""; map.setPaintProperty(`route-line-${route.id}`, "line-width", 7); });
       map.on("click", `stops-dot-${route.id}`, (e) => {
+        if (didDragStopRef.current) { didDragStopRef.current = false; return; }
         const name = e.features?.[0]?.properties?.name as string | undefined;
         if (!name) return;
         e.originalEvent.stopPropagation();
@@ -1664,6 +1722,84 @@ export function TransitMap() {
       map.on("mouseleave", `stops-dot-${route.id}`, () => { map.getCanvas().style.cursor = ""; });
     });
   }, [customLines, mapLoaded]);
+
+  // ── drag-to-reposition stops while in edit mode
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !addStationToLine) return;
+
+    const lineId = addStationToLine;
+    const layerId = `stops-dot-${lineId}`;
+    if (!map.getLayer(layerId)) return;
+
+    let dragging: { name: string; coords: [number, number] } | null = null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onMouseDown = (e: mapboxgl.MapMouseEvent & { features?: any[] }) => {
+      const name = e.features?.[0]?.properties?.name as string | undefined;
+      if (!name) return;
+      // Only drag stops that belong to extraStops (or all stops on a custom line)
+      const extraStops = routeExtraStopsRef.current.get(lineId) ?? [];
+      const isCustomLine = customLinesRef.current.some((r) => r.id === lineId);
+      if (!isCustomLine && !extraStops.some((s) => s.name === name)) return;
+      e.preventDefault();
+      dragging = { name, coords: [e.lngLat.lng, e.lngLat.lat] };
+      map.dragPan.disable();
+      map.getCanvas().style.cursor = "grabbing";
+    };
+
+    const onMouseMove = (e: mapboxgl.MapMouseEvent) => {
+      if (!dragging) return;
+      const newCoords: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+      dragging.coords = newCoords;
+      // Update map sources directly — no React re-render for smooth dragging
+      const route = [...ROUTES, ...customLinesRef.current].find((r) => r.id === lineId);
+      if (!route) return;
+      const baseStops = route.stops ?? [];
+      const extraStops = routeExtraStopsRef.current.get(lineId) ?? [];
+      const updatedExtra = extraStops.map((s) => s.name === dragging!.name ? { ...s, coords: newCoords } : s);
+      const allStops = [...baseStops, ...updatedExtra];
+      const stopSrc = map.getSource(`stops-${lineId}`) as mapboxgl.GeoJSONSource | undefined;
+      if (stopSrc) stopSrc.setData(stopsToGeoJSON({ ...route, stops: allStops }));
+      const lineSrc = map.getSource(`route-${lineId}`) as mapboxgl.GeoJSONSource | undefined;
+      if (lineSrc && allStops.length >= 2) lineSrc.setData(routeToGeoJSON({ ...route, stops: allStops, shape: undefined }));
+      map.getCanvas().style.cursor = "grabbing";
+    };
+
+    const onMouseUp = () => {
+      if (!dragging) return;
+      const { name, coords } = dragging;
+      dragging = null;
+      map.dragPan.enable();
+      map.getCanvas().style.cursor = "";
+      didDragStopRef.current = true;
+      snapshotHistory();
+      setRouteExtraStops((prev) => {
+        const next = new Map(prev);
+        const extraStops = next.get(lineId) ?? [];
+        next.set(lineId, extraStops.map((s) => s.name === name ? { ...s, coords } : s));
+        return next;
+      });
+    };
+
+    const onEnter = () => { if (!dragging) map.getCanvas().style.cursor = "grab"; };
+    const onLeave = () => { if (!dragging) map.getCanvas().style.cursor = ""; };
+
+    map.on("mousedown", layerId, onMouseDown);
+    map.on("mousemove", onMouseMove);
+    map.on("mouseup", onMouseUp);
+    map.on("mouseenter", layerId, onEnter);
+    map.on("mouseleave", layerId, onLeave);
+
+    return () => {
+      map.off("mousedown", layerId, onMouseDown);
+      map.off("mousemove", onMouseMove);
+      map.off("mouseup", onMouseUp);
+      map.off("mouseenter", layerId, onEnter);
+      map.off("mouseleave", layerId, onLeave);
+      map.dragPan.enable();
+    };
+  }, [addStationToLine, mapLoaded]);
 
   if (!TOKEN) {
     return (
@@ -1692,28 +1828,9 @@ export function TransitMap() {
       {/* TTC Lines legend + neighbourhood panel — top left */}
       <div className="absolute top-5 left-5 flex flex-col gap-4 pointer-events-auto">
         <div className="rounded-xl border border-[#D7D7D7] bg-white px-5 py-4 shadow-sm w-56">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3">
             <p className="text-lg font-bold text-stone-800">Lines</p>
-            <button
-              onClick={() => setShowNewLineModal(true)}
-              title="New line"
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-stone-100 text-stone-500 hover:bg-stone-200 hover:text-stone-800 text-sm font-bold leading-none"
-            >
-              +
-            </button>
           </div>
-          {addStationToLine && (
-            <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2 py-1.5 text-xs text-indigo-700">
-              <span className="h-2 w-2 shrink-0 rounded-full animate-pulse bg-indigo-500" />
-              <span className="flex-1">Click map to add station</span>
-              <button
-                onClick={() => setAddStationToLine(null)}
-                className="font-semibold hover:text-indigo-900"
-              >
-                Done
-              </button>
-            </div>
-          )}
           <ul className="space-y-1">
             {[...ROUTES, ...customLines].map((r) => {
               const isActive = addStationToLine === r.id;
@@ -1761,6 +1878,13 @@ export function TransitMap() {
               </>
             )}
           </ul>
+          <button
+            onClick={() => setShowNewLineModal(true)}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-stone-900 py-2 text-sm font-semibold text-white hover:bg-stone-700 transition-colors"
+          >
+            <span className="text-base leading-none">+</span>
+            New Line
+          </button>
         </div>
 
         {focusedNeighbourhood && (
@@ -1775,6 +1899,22 @@ export function TransitMap() {
           />
         )}
       </div>
+
+      {/* Add-station notification — below top-center toolbar */}
+      {addStationToLine && (
+        <div className="pointer-events-none absolute top-[85px] left-0 right-0 flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm text-indigo-700 shadow-sm">
+            <span>Click map to add station</span>
+            <span className="h-4 w-px bg-indigo-200" />
+            <button
+              onClick={() => setAddStationToLine(null)}
+              className="font-semibold hover:text-indigo-900 transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Top-center toolbar */}
       <div className="pointer-events-none absolute top-5 left-0 right-0 flex justify-center gap-2">
@@ -1994,6 +2134,15 @@ export function TransitMap() {
             customLines.some((r) => r.id === stationPopup.routeId) ||
             (routeExtraStops.get(stationPopup.routeId) ?? []).some((s) => s.name === stationPopup.name)
           }
+          connectedRoutes={
+            [...ROUTES, ...customLines].filter((r) =>
+              r.id !== stationPopup.routeId &&
+              (routeExtraStops.get(r.id) ?? []).some((s) => s.name === stationPopup.name)
+            )
+          }
+          onRemoveTransfer={(targetRouteId) => {
+            handleDeleteStop(stationPopup.name, targetRouteId);
+          }}
           onClose={() => setStationPopup(null)}
           onDelete={() => { handleDeleteStop(stationPopup.name, stationPopup.routeId); setStationPopup(null); }}
           onAddTransfer={(targetRouteId) => {
