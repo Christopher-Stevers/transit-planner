@@ -1,16 +1,19 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 /**
  * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially useful
  * for Docker builds.
  */
 import "./src/env.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import("next").NextConfig} */
 const config = {
   transpilePackages: ["@repo/web_db", "@repo/web_utils"],
-  experimental: {
-    turbo: {
-      root: "..",
-    },
+  turbopack: {
+    root: path.resolve(__dirname, ".."),
   },
 };
 
