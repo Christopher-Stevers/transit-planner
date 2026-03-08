@@ -15,6 +15,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.export-image-tag.outputs.image_tag }}
     # Use Production/Development environment so NEXTAUTH_URL (and other vars) are available for build-args when desired
     environment: ${{ github.ref == 'refs/heads/production' && 'Production' || 'Development' }}
     permissions:
@@ -91,7 +93,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Export image tag
+        id: export-image-tag
+        run: echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs: build
     runs-on: ubuntu-latest
     environment: ${{ (github.event.workflow_run.head_branch == 'production' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/production')) && 'Production' || 'Development' }}
 
@@ -259,7 +266,7 @@ jobs:
              export PAT="${{ secrets.PAT }}"
              export REGISTRY="${{ vars.REGISTRY || secrets.REGISTRY || 'ghcr.io' }}"
              export IMAGE_PREFIX="${{ vars.IMAGE_PREFIX || secrets.IMAGE_PREFIX || github.repository_owner }}"
-             export IMAGE_TAG="$DEPLOY_BRANCH"
+             export IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
              export SERVER_PORT="${{ vars.SERVER_PORT || secrets.SERVER_PORT || '8080' }}"
              export WEB_BACKEND_URL="http://web-backend:8000"
              export DEPLOY_ENVIRONMENT="${{ vars.DEPLOY_ENVIRONMENT }}"
@@ -268,7 +275,7 @@ jobs:
              # Deploy web, web-backend
             export COMPOSE_PROFILES="web,web-backend"
             SERVICES="web web-backend"
-            export IMAGE_TAG="$DEPLOY_BRANCH"
+            export IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
             echo ""
             echo "=========================================="
             echo "$ENV_EMOJI  Starting Deployment to $DEPLOY_ENV"
