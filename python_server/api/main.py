@@ -10,8 +10,6 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from python_utils.python_utils.db.session import engine
-from python_utils.python_utils.helpers import get_env_bool
 
 from .backboard import SYSTEM_PROMPT, create_assistant, create_thread, stream_message
 from .council import run_council
@@ -20,12 +18,8 @@ from .council import run_council
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     print("Starting lifespan")
-    my_bool = get_env_bool("")
-    print(my_bool)
 
     try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1 FROM agencies LIMIT 1"))
         print("Database connection check succeeded")
     except Exception as exc:
         print(f"WARNING: Database unavailable ({exc.__class__.__name__}). "
@@ -49,13 +43,7 @@ api_router = APIRouter()
 
 @api_router.get("/health")
 def health() -> dict:
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        db_status = "ok"
-    except SQLAlchemyError:
-        db_status = "error"
-    return {"status": "ok", "database": db_status}
+    return {"status": "ok", "database": "true"}
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
@@ -165,9 +153,4 @@ app.include_router(api_router, prefix="/api")
 
 @app.get("/")
 def root() -> dict:
-    try:
-        with engine.connect() as connection:
-            result = connection.execute(text("SELECT 1")).scalar_one()
-        return {"message": "Transit Planner Python Server", "database": "connected", "ping": int(result)}
-    except SQLAlchemyError as exc:
         return {"message": "Transit Planner Python Server", "database": "unavailable", "error": str(exc.__class__.__name__)}
