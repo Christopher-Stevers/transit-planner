@@ -1,0 +1,39 @@
+FROM node:20-alpine AS builder
+
+RUN apk add --no-cache openssl
+
+WORKDIR /app
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --legacy-peer-deps
+
+COPY web/ .
+RUN npx prisma generate
+# NextAuth validates NEXTAUTH_URL when NODE_ENV=production; build runs in production mode.
+# Pass via --build-arg NEXTAUTH_URL=... or use default; runtime still overrides when container runs.
+ARG NEXTAUTH_URL=https://roamad.ca
+ENV NEXTAUTH_URL=${NEXTAUTH_URL}
+RUN npm run build
+
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache openssl
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV HOSTNAME="0.0.0.0"
+ENV PORT=3000
+
+RUN addgroup -g 1001 appuser && \
+    adduser -D -u 1001 -G appuser appuser
+
+COPY --from=builder --chown=appuser:appuser /app/.next/standalone ./
+COPY --from=builder --chown=appuser:appuser /app/.next/static ./.next/static
+COPY --from=builder --chown=appuser:appuser /app/public ./public
+
+USER appuser
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]
