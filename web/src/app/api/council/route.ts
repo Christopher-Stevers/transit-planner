@@ -1,0 +1,47 @@
+import { type NextRequest } from "next/server";
+import { runCouncil, type ExistingStop } from "~/server/council";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+interface CouncilRequestBody {
+  neighbourhoods?: string[];
+  stations?: string[];
+  line_type?: string | null;
+  context?: string | null;
+  existing_lines?: ExistingStop[];
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json() as CouncilRequestBody;
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      try {
+        for await (const chunk of runCouncil({
+          neighbourhoods: body.neighbourhoods ?? [],
+          stations: body.stations ?? [],
+          lineType: body.line_type,
+          extraContext: body.context,
+          existingLines: body.existing_lines ?? [],
+        })) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+      } catch (err) {
+        const errChunk = `data: ${JSON.stringify({ type: "status", text: `Fatal error: ${String(err)}` })}\n\n`;
+        controller.enqueue(encoder.encode(errChunk));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}

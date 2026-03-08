@@ -43,33 +43,33 @@ export function TransitMap() {
   const [popRawData, setPopRawData] = useState<PopRow[]>([]);
   const [drawMode, setDrawMode] = useState<DrawMode>("normal");
 
+  // ── line-editor state (declared before stationPopulations useMemo)
+  const [addStationToLine, setAddStationToLine] = useState<string | null>(null);
+  const [routeExtraStops, setRouteExtraStops] = useState<Map<string, { name: string; coords: [number, number] }[]>>(new Map());
+  const [customLines, setCustomLines] = useState<Route[]>([]);
+
   // Voronoi: assign each population point to its nearest station (5 km cutoff)
   const stationPopulations = useMemo(() => {
     if (popRawData.length === 0) return new Map<string, number>();
-    // Collect all unique stations across all routes
     const allStops: { name: string; coords: [number, number] }[] = [];
     const seen = new Set<string>();
-    for (const route of ROUTES) {
-      for (const stop of route.stops) {
-        const key = `${stop.name}@${stop.coords[0]},${stop.coords[1]}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          allStops.push(stop);
-        }
-      }
-    }
+    const addStop = (stop: { name: string; coords: [number, number] }) => {
+      const key = `${stop.name}@${stop.coords[0]},${stop.coords[1]}`;
+      if (!seen.has(key)) { seen.add(key); allStops.push(stop); }
+    };
+    // Existing TTC routes
+    for (const route of ROUTES) for (const stop of route.stops) addStop(stop);
+    // Custom lines
+    for (const route of customLines) for (const stop of route.stops) addStop(stop);
+    // Extra stops added to any route (including custom lines)
+    for (const stops of routeExtraStops.values()) for (const stop of stops) addStop(stop);
     return computeStationPopulations(popRawData, allStops, 5);
-  }, [popRawData]);
+  }, [popRawData, customLines, routeExtraStops]);
+
   const [hasBoundary, setHasBoundary] = useState(false);
   const [selectedNeighbourhoods, setSelectedNeighbourhoods] = useState<Set<string>>(new Set());
   const [selectedStations, setSelectedStations] = useState<Set<string>>(new Set()); // "name::routeId"
   const [focusedNeighbourhood, setFocusedNeighbourhood] = useState<{ id: string; name: string; lat: number; lng: number; geometry: GeoJSON.Geometry | null } | null>(null);
-
-
-  // ── line-editor state
-  const [addStationToLine, setAddStationToLine] = useState<string | null>(null);
-  const [routeExtraStops, setRouteExtraStops] = useState<Map<string, { name: string; coords: [number, number] }[]>>(new Map());
-  const [customLines, setCustomLines] = useState<Route[]>([]);
   const [stationPopup, setStationPopup] = useState<{ name: string; routeId: string; x: number; y: number; coords: [number, number] } | null>(null);
   const [showNewLineModal, setShowNewLineModal] = useState(false);
   const stopCounterRef = useRef(1);
@@ -209,7 +209,7 @@ export function TransitMap() {
   function handleDeleteCustomLine(routeId: string) {
     const map = mapRef.current;
     if (map) {
-      [`route-shadow-${routeId}`, `route-outline-${routeId}`, `route-line-${routeId}`, `stops-ring-${routeId}`, `stops-dot-${routeId}`].forEach((id) => {
+      [`route-shadow-${routeId}`, `route-outline-${routeId}`, `route-line-${routeId}`, `stops-ring-${routeId}`, `stops-selected-${routeId}`, `stops-dot-${routeId}`].forEach((id) => {
         if (map.getLayer(id)) map.removeLayer(id);
       });
       [`route-${routeId}`, `stops-${routeId}`].forEach((id) => {

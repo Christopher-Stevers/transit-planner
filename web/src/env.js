@@ -9,6 +9,8 @@ export const env = createEnv({
   server: {
     SUPABASE_URL: z.string().url(),
     SUPABASE_KEY: z.string().min(1),
+    BACKBOARD_API_KEY: z.string().min(1),
+    ELEVENLABS_KEY: z.string().min(1),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -30,7 +32,10 @@ export const env = createEnv({
   runtimeEnv: {
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_KEY: process.env.SUPABASE_KEY,
+    BACKBOARD_API_KEY: process.env.BACKBOARD_API_KEY,
+    ELEVENLABS_KEY: process.env.ELEVENLABS_KEY,
     NODE_ENV: process.env.NODE_ENV,
+
     NEXT_PUBLIC_MAPBOX_TOKEN: process.env.NEXT_PUBLIC_MAPBOX_TOKEN,
   },
   /**
