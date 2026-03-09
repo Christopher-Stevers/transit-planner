@@ -54,9 +54,9 @@ export function GeneratedRoutePanel({
   }
 
   return (
-    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-[30px] bg-white" style={{ border: "0.93px solid #BEB7B4" }}>
+    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-2xl bg-white" style={{ border: "0.93px solid #BEB7B4" }}>
       {/* Header */}
-      <div className="flex items-start justify-between px-5 pt-5 pb-4">
+      <div className="flex items-start justify-between px-5 pt-5 pb-5">
         <div className="flex items-center gap-3 min-w-0">
           <span
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
@@ -111,12 +111,12 @@ export function GeneratedRoutePanel({
 
       <div className="mx-5 h-0.5 rounded-full" style={{ background: route.color }} />
 
-      <div className="px-5 pt-3 pb-2">
+      <div className="px-5 pt-4 pb-0">
         <p className="text-sm leading-relaxed text-stone-500">{route.description}</p>
       </div>
 
       {/* Stats */}
-      <div className="border-b border-stone-100 px-5 pb-4">
+      <div className="border-b border-stone-100 px-5 pt-4 pb-4">
         <p className="mb-3 text-xs font-semibold text-stone-500">
           Route Analysis
         </p>
@@ -170,7 +170,7 @@ export function GeneratedRoutePanel({
       </div>
 
       {/* Stops */}
-      <div className="mt-2 flex-1 overflow-y-auto px-5 pb-3">
+      <div className="mt-4 flex-1 overflow-y-auto px-5 pb-5">
         <p className="mb-2 text-xs font-semibold text-stone-500">
           Stops — click to toggle
         </p>

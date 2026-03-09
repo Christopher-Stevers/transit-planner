@@ -27,8 +27,8 @@ export function RoutePanel({
   const extraNames = new Set(extraStops.map((s) => s.name));
 
   return (
-    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-[30px] bg-white" style={{ border: "0.93px solid #BEB7B4" }}>
-      <div className="flex items-start justify-between px-5 pt-5 pb-4">
+    <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-2xl bg-white" style={{ border: "0.93px solid #BEB7B4" }}>
+      <div className="flex items-start justify-between px-5 pt-5 pb-5">
         <div className="flex items-center gap-3">
           <span
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
@@ -53,14 +53,14 @@ export function RoutePanel({
       <div className="mx-5 h-0.5 rounded-full" style={{ background: route.color }} />
 
       {selectedStop && popServed !== undefined && (
-        <div className="mx-5 mt-3 rounded-xl bg-stone-50 px-4 py-3">
+        <div className="mx-5 mt-4 rounded-xl bg-stone-50 px-4 py-3">
           <p className="text-xs font-semibold text-stone-500">Population Served</p>
           <p className="mt-1 text-2xl font-bold text-stone-800">{popServed.toLocaleString()}</p>
           <p className="text-[11px] text-stone-400">Nearest-station assignment, 5 km cutoff</p>
         </div>
       )}
 
-      <div className="px-5 pt-3 pb-2">
+      <div className="px-5 pt-4 pb-0">
         <p className="text-sm leading-relaxed text-stone-500">{route.description}</p>
         <p className="mt-2 text-xs font-medium text-stone-400">
           Frequency: <span className="text-stone-600">{route.frequency}</span>
@@ -68,7 +68,7 @@ export function RoutePanel({
       </div>
 
       {isCustomLine && onDeleteLine && (
-        <div className="mx-5 mb-3">
+        <div className="mx-5 mt-4">
           <button
             onClick={onDeleteLine}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
@@ -81,8 +81,8 @@ export function RoutePanel({
         </div>
       )}
 
-      <div className="mt-2 flex-1 overflow-y-auto px-5 pb-5">
-        <p className="mb-2 text-[11px] font-semibold tracking-widest text-stone-400 uppercase">
+      <div className="mt-4 flex-1 overflow-y-auto px-5 pb-5">
+        <p className="mb-2 text-xs font-semibold text-stone-500">
           Stops ({allStops.length})
         </p>
         <ol className="relative border-l-2" style={{ borderColor: route.color + "44" }}>

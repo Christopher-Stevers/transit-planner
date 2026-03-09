@@ -1541,18 +1541,20 @@ export function TransitMap() {
           </div>
         )}
 
-        {/* Selection badge — absolutely anchored to the right of the toolbar, doesn't shift layout */}
-        {(selectedNeighbourhoods.size > 0 || selectedStations.size > 0) && (
-          <div className="pointer-events-auto absolute top-0 left-full ml-2 flex h-13 items-center whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-4 text-sm font-medium text-indigo-700 shadow-sm">
-            SELECTED: {selectedNeighbourhoods.size} neighbourhood{selectedNeighbourhoods.size !== 1 ? "s" : ""}, {selectedStations.size} stop{selectedStations.size !== 1 ? "s" : ""}
-          </div>
-        )}
         </div>
       </div>
 
+      {(selectedNeighbourhoods.size > 0 || selectedStations.size > 0) && !addStationToLine && (
+        <div className="pointer-events-none absolute top-[85px] left-0 right-0 flex justify-center">
+          <div className="pointer-events-auto flex items-center rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm text-indigo-700 shadow-sm">
+            {selectedNeighbourhoods.size} neighbourhood{selectedNeighbourhoods.size !== 1 ? "s" : ""}, {selectedStations.size} stop{selectedStations.size !== 1 ? "s" : ""} selected
+          </div>
+        </div>
+      )}
+
       {/* Side panel — only one shown at a time to prevent overlap */}
       <div
-        className={`pointer-events-none absolute right-9 bottom-10 flex items-stretch transition-all duration-300 ease-in-out ${hasSelection ? "top-20" : "top-10"} ${
+        className={`pointer-events-none absolute right-6 bottom-6 flex items-stretch transition-all duration-300 ease-in-out ${hasSelection ? "top-16" : "top-6"} ${
           selectedRoute || showGeneratedPanel ? "translate-x-0" : "translate-x-[calc(100%+2.25rem)]"
         }`}
       >
@@ -1582,7 +1584,10 @@ export function TransitMap() {
       </div>
 
       {/* Custom map controls — bottom right */}
-      <div className="pointer-events-none absolute right-[10px] bottom-[30px] flex flex-col gap-1">
+      <div
+        className="pointer-events-none absolute bottom-6 flex flex-col gap-1 transition-[right] duration-300 ease-in-out"
+        style={{ right: selectedRoute || showGeneratedPanel ? "354px" : "24px" }}
+      >
         {/* Bird's eye toggle */}
         <button
           onClick={() => {
@@ -1593,7 +1598,7 @@ export function TransitMap() {
             map.easeTo({ pitch: next ? 0 : 40, bearing: next ? 0 : -10, duration: 600 });
           }}
           title="Bird's eye view"
-          className={`pointer-events-auto flex h-[38px] w-[38px] items-center justify-center rounded-md shadow transition-all ${
+          className={`pointer-events-auto flex h-[38px] w-[38px] items-center justify-center rounded-xl shadow transition-all ${
             isBirdsEye ? "bg-stone-800 text-white" : "bg-white text-stone-600 hover:bg-stone-50"
           }`}
         >
@@ -1603,7 +1608,7 @@ export function TransitMap() {
           </svg>
         </button>
         {/* Zoom controls */}
-        <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md shadow">
+        <div className="pointer-events-auto flex flex-col overflow-hidden rounded-xl shadow">
           <button
             onClick={() => mapRef.current?.zoomIn()}
             title="Zoom in"
