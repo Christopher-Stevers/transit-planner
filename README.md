@@ -130,7 +130,7 @@ Requires: Node.js 20+, Python 3.11+, PostgreSQL with PostGIS, Mapbox API key, An
 ```
 
 ## Inspirations
-[JPW Brand New Subway](https://jpwright.github.io/subway/): 
+[JPW Brand New Subway](https://jpwright.github.io/subway/)
 
 Built At
 Hack Canada 2026 — Top 10 Google - Build with AI Track
