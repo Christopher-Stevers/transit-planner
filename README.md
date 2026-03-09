@@ -91,6 +91,9 @@ transit-planner/
 
 
 
+
+
+
 **Data flow:**
 1. User selects neighborhoods/stations and submits a planning request
 2. Next.js `/api/council` proxies the request to the Python FastAPI backend
