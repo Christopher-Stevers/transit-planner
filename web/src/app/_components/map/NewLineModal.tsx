@@ -29,7 +29,7 @@ export function NewLineModal({
           onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) onConfirm(name.trim(), color, type); }}
         />
         <div className="mt-3">
-          <p className="mb-1.5 text-[10px] font-semibold tracking-widest text-stone-400 uppercase">Color</p>
+          <p className="mb-1.5 text-xs font-semibold text-stone-500">Color</p>
           <div className="flex flex-wrap gap-2">
             {PRESET_COLORS.map((c) => (
               <button
@@ -50,8 +50,8 @@ export function NewLineModal({
           </button>
           <button
             onClick={() => { if (name.trim()) onConfirm(name.trim(), color, type); }}
-            className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-            style={{ background: color }}
+            className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 bg-black"
+            style={{}}
           >
             Create
           </button>
