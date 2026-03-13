@@ -4,19 +4,19 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import mapboxgl from "mapbox-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChatPanel } from "./ChatPanel";
 import { haversineKm, computeStationPopulations, type PopRow } from "~/app/map/geo-utils";
 import {
   ROUTES,
   type GeneratedRoute,
   type Route,
 } from "~/app/map/mock-data";
-import { routeToGeoJSON, stopsToGeoJSON, geomBBox } from "./map/geo";
+import { routeToGeoJSON, stopsToGeoJSON } from "./map/geo";
 import { NeighbourhoodPanel } from "./map/NeighbourhoodPanel";
 import { RoutePanel } from "./map/RoutePanel";
 import { GeneratedRoutePanel } from "./map/GeneratedRoutePanel";
 import { StationPopup } from "./map/StationPopup";
 import { NewLineModal } from "./map/NewLineModal";
-import { ChatPanel, type ParsedRoute } from "./ChatPanel";
 
 type DrawMode = "normal" | "select" | "boundary";
 
@@ -32,10 +32,12 @@ export function TransitMap() {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedStop, setSelectedStop] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [generatedRoute, setGeneratedRoute] = useState<GeneratedRoute | null>(null);
-  const [selectedGeneratedStop, setSelectedGeneratedStop] = useState<string | null>(null);
   const [disabledStops, setDisabledStops] = useState<Set<string>>(new Set());
+  const [councilOpen, setCouncilOpen] = useState(false);
+  const [councilHasRun, setCouncilHasRun] = useState(false);
+  const [councilStartNew, setCouncilStartNew] = useState(false);
+  const [councilPreview, setCouncilPreview] = useState<Array<{ color: string; stops: { name: string; coords: [number, number] }[] }> | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [isBirdsEye, setIsBirdsEye] = useState(false);
   const [showTraffic, setShowTraffic] = useState(false);
@@ -45,38 +47,34 @@ export function TransitMap() {
   const [trafficGeoJSON, setTrafficGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null);
   const [popRawData, setPopRawData] = useState<PopRow[]>([]);
   const [drawMode, setDrawMode] = useState<DrawMode>("normal");
-  const [councilOpen, setCouncilOpen] = useState(false);
-  const [councilHasRun, setCouncilHasRun] = useState(false);
-  const [councilStartNew, setCouncilStartNew] = useState(false);
-  const [councilPreview, setCouncilPreview] = useState<Array<{ color: string; stops: { name: string; coords: [number, number] }[] }> | null>(null);
-
-  // ── line-editor state (declared before stationPopulations useMemo)
-  const [addStationToLine, setAddStationToLine] = useState<string | null>(null);
-  const [routeExtraStops, setRouteExtraStops] = useState<Map<string, { name: string; coords: [number, number] }[]>>(new Map());
-  const [customLines, setCustomLines] = useState<Route[]>([]);
 
   // Voronoi: assign each population point to its nearest station (5 km cutoff)
   const stationPopulations = useMemo(() => {
     if (popRawData.length === 0) return new Map<string, number>();
+    // Collect all unique stations across all routes
     const allStops: { name: string; coords: [number, number] }[] = [];
     const seen = new Set<string>();
-    const addStop = (stop: { name: string; coords: [number, number] }) => {
-      const key = `${stop.name}@${stop.coords[0]},${stop.coords[1]}`;
-      if (!seen.has(key)) { seen.add(key); allStops.push(stop); }
-    };
-    // Existing TTC routes
-    for (const route of ROUTES) for (const stop of route.stops) addStop(stop);
-    // Custom lines
-    for (const route of customLines) for (const stop of route.stops) addStop(stop);
-    // Extra stops added to any route (including custom lines)
-    for (const stops of routeExtraStops.values()) for (const stop of stops) addStop(stop);
+    for (const route of ROUTES) {
+      for (const stop of route.stops) {
+        const key = `${stop.name}@${stop.coords[0]},${stop.coords[1]}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          allStops.push(stop);
+        }
+      }
+    }
     return computeStationPopulations(popRawData, allStops, 5);
-  }, [popRawData, customLines, routeExtraStops]);
-
+  }, [popRawData]);
   const [hasBoundary, setHasBoundary] = useState(false);
   const [selectedNeighbourhoods, setSelectedNeighbourhoods] = useState<Set<string>>(new Set());
   const [selectedStations, setSelectedStations] = useState<Set<string>>(new Set()); // "name::routeId"
   const [focusedNeighbourhood, setFocusedNeighbourhood] = useState<{ id: string; name: string; lat: number; lng: number; geometry: GeoJSON.Geometry | null } | null>(null);
+
+
+  // ── line-editor state
+  const [addStationToLine, setAddStationToLine] = useState<string | null>(null);
+  const [routeExtraStops, setRouteExtraStops] = useState<Map<string, { name: string; coords: [number, number] }[]>>(new Map());
+  const [customLines, setCustomLines] = useState<Route[]>([]);
   const [stationPopup, setStationPopup] = useState<{ name: string; routeId: string; x: number; y: number; coords: [number, number] } | null>(null);
   const [showNewLineModal, setShowNewLineModal] = useState(false);
   const stopCounterRef = useRef(1);
@@ -97,7 +95,6 @@ export function TransitMap() {
   const neighbourhoodsGeoJSONRef = useRef<GeoJSON.FeatureCollection | null>(null);
   const didDragStopRef = useRef(false); // suppresses click after a drag
   const stationPopupRef = useRef<typeof stationPopup>(null);
-  const shimmerRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     drawModeRef.current = drawMode;
@@ -145,137 +142,6 @@ export function TransitMap() {
   useEffect(() => {
     stationPopupRef.current = stationPopup;
   }, [stationPopup]);
-
-  async function handleGenerateRoute() {
-    if (isGenerating) return;
-    setIsGenerating(true);
-    setGeneratedRoute(null);
-    setDisabledStops(new Set());
-
-    const stops: { name: string; coords: [number, number] }[] = [];
-
-    // One stop per selected neighbourhood at its bbox centroid
-    const geoJSON = neighbourhoodsGeoJSONRef.current;
-    if (geoJSON) {
-      for (const id of selectedNeighbourhoodsRef.current) {
-        const feat = geoJSON.features.find((f) => f.properties?.AREA_SHORT_CODE === id);
-        if (!feat?.geometry) continue;
-        const [minX, minY, maxX, maxY] = geomBBox(feat.geometry);
-        const name = (feat.properties?.AREA_NAME as string | undefined) ?? id;
-        stops.push({ name, coords: [(minX + maxX) / 2, (minY + maxY) / 2] });
-      }
-    }
-
-    // One stop per selected station (use existing coords)
-    const allRoutes = [...ROUTES, ...customLinesRef.current];
-    for (const key of selectedStationsRef.current) {
-      const [stationName, routeId] = key.split("::");
-      if (!stationName || !routeId) continue;
-      const route = allRoutes.find((r) => r.id === routeId);
-      const allStops = [...(route?.stops ?? []), ...(routeExtraStopsRef.current.get(routeId) ?? [])];
-      const found = allStops.find((s) => s.name === stationName);
-      if (found) stops.push({ name: found.name, coords: found.coords });
-    }
-
-    // If a boundary was drawn, add its centroid as a waypoint stop
-    const draw = drawRef.current;
-    if (draw && hasBoundary) {
-      const features = draw.getAll().features;
-      const poly = features[0];
-      if (poly?.geometry) {
-        const [minX, minY, maxX, maxY] = geomBBox(poly.geometry as GeoJSON.Geometry);
-        stops.push({ name: "Selected Area", coords: [(minX + maxX) / 2, (minY + maxY) / 2] });
-      }
-    }
-
-    if (stops.length < 2) { setIsGenerating(false); return; }
-
-    // Order west → east by longitude so the line flows sensibly
-    stops.sort((a, b) => a.coords[0] - b.coords[0]);
-
-    // Population within 2 km of each generated stop (from loaded census data)
-    const stopPopulations = stops.map((stop) => ({
-      name: stop.name,
-      pop: popRawData.reduce((sum, row) =>
-        haversineKm(stop.coords, [row.longitude, row.latitude]) <= 2 ? sum + row.population : sum, 0),
-    }));
-
-    // Total route length in km
-    const routeLengthKm = stops.slice(1).reduce(
-      (sum, s, i) => sum + haversineKm(stops[i]!.coords, s.coords), 0
-    );
-
-    // Neighbourhood names for context
-    const neighbourhoodNames = [...selectedNeighbourhoodsRef.current].map((id) => {
-      const feat = neighbourhoodsGeoJSONRef.current?.features.find(
-        (f) => f.properties?.AREA_SHORT_CODE === id
-      );
-      return (feat?.properties?.AREA_NAME as string | undefined) ?? id;
-    });
-
-    const stopList = stops.map((s) => s.name).join(" → ");
-    const popLines = stopPopulations
-      .map((s) => `  - ${s.name}: ~${(Math.round(s.pop / 100) * 100).toLocaleString()} residents`)
-      .join("\n");
-
-    const message = [
-      `Analyze this proposed Toronto subway route and produce realistic planning estimates.`,
-      `Route: ${stopList}`,
-      `Total length: ${routeLengthKm.toFixed(1)} km | Stops: ${stops.length}`,
-      neighbourhoodNames.length > 0 ? `Neighbourhoods served: ${neighbourhoodNames.join(", ")}` : null,
-      `Population within 2 km of each stop:\n${popLines}`,
-      `\nReturn ONLY this JSON (no markdown, no extra text):\n{"description":"<2 sentences about route purpose>","cost":"<e.g. $2.1B>","timeline":"<e.g. 8 years>","costedTimeline":"<e.g. 2034>","minutesSaved":<number>,"dollarsSaved":"<e.g. $4.2M/yr>","percentageChance":<0-100>,"prNightmareScore":<0-10>}`,
-    ].filter(Boolean).join("\n");
-
-    // Defaults in case Backboard call fails
-    let description = `Connects ${stopList}`;
-    let stats: GeneratedRoute["stats"] = {
-      cost: "$1.8B", timeline: "7 years", costedTimeline: "2033",
-      minutesSaved: 12, dollarsSaved: "$3.1M/yr", percentageChance: 72, prNightmareScore: 4,
-    };
-
-    try {
-      const res = await fetch("/api/backboard/message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          systemPrompt: "You are a Toronto transit planning analyst. Respond with ONLY valid JSON, no markdown, no extra text.",
-          maxTokens: 500,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { response: string };
-        const raw = data.response.trim().replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
-        const ai = JSON.parse(raw) as Partial<GeneratedRoute["stats"] & { description: string }>;
-        if (ai.description) description = ai.description;
-        stats = {
-          cost:             ai.cost             ?? stats.cost,
-          timeline:         ai.timeline         ?? stats.timeline,
-          costedTimeline:   ai.costedTimeline   ?? stats.costedTimeline,
-          minutesSaved:     ai.minutesSaved      ?? stats.minutesSaved,
-          dollarsSaved:     ai.dollarsSaved      ?? stats.dollarsSaved,
-          percentageChance: ai.percentageChance  ?? stats.percentageChance,
-          prNightmareScore: ai.prNightmareScore  ?? stats.prNightmareScore,
-        };
-      }
-    } catch { /* fall back to defaults */ }
-
-    setGeneratedRoute({
-      id: `generated-${Date.now()}`,
-      name: "Optimized Route",
-      shortName: "OPT",
-      color: "#e63946",
-      textColor: "#ffffff",
-      type: "subway",
-      description,
-      frequency: "Every 5 min",
-      stops,
-      stats,
-    });
-    setIsGenerating(false);
-    handleClearAll();
-  }
 
   function snapshotHistory() {
     historyRef.current.push({
@@ -359,7 +225,7 @@ export function TransitMap() {
   function handleDeleteCustomLine(routeId: string) {
     const map = mapRef.current;
     if (map) {
-      [`route-shadow-${routeId}`, `route-outline-${routeId}`, `route-line-${routeId}`, `stops-ring-${routeId}`, `stops-selected-${routeId}`, `stops-dot-${routeId}`].forEach((id) => {
+      [`route-shadow-${routeId}`, `route-outline-${routeId}`, `route-line-${routeId}`, `stops-ring-${routeId}`, `stops-dot-${routeId}`].forEach((id) => {
         if (map.getLayer(id)) map.removeLayer(id);
       });
       [`route-${routeId}`, `stops-${routeId}`].forEach((id) => {
@@ -1065,7 +931,7 @@ export function TransitMap() {
         type: "FeatureCollection",
         features: generatedRoute.stops.map((s) => ({
           type: "Feature",
-          properties: { name: s.name, disabled: disabledStops.has(s.name) },
+          properties: { disabled: disabledStops.has(s.name) },
           geometry: { type: "Point", coordinates: s.coords },
         })),
       } as GeoJSON.FeatureCollection<GeoJSON.Point>,
@@ -1126,16 +992,6 @@ export function TransitMap() {
 
     map.on("click", "generated-route-line", () => setSelectedRoute(null));
 
-    map.on("click", "generated-stops-dot", (e) => {
-      const name = e.features?.[0]?.properties?.name as string | undefined;
-      if (!name) return;
-      setSelectedGeneratedStop((prev) => (prev === name ? null : name));
-      map.flyTo({ center: e.lngLat, zoom: Math.max(map.getZoom(), 13), duration: 400 });
-    });
-
-    map.on("mouseenter", "generated-stops-dot", () => { map.getCanvas().style.cursor = "pointer"; });
-    map.on("mouseleave", "generated-stops-dot", () => { map.getCanvas().style.cursor = ""; });
-
     map.on("mouseenter", "generated-route-line", () => {
       map.getCanvas().style.cursor = "pointer";
       map.setPaintProperty("generated-route-line", "line-width", 8);
@@ -1178,8 +1034,8 @@ export function TransitMap() {
     });
   }, [routeExtraStops, mapLoaded]);
 
-
-  // ── Council preview: render animated multi-route layer ────────────────────
+  // ── council live preview layer ─────────────────────────────────────────────
+  const shimmerRafRef = useRef<number | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
@@ -1232,21 +1088,26 @@ export function TransitMap() {
     } else {
       map.addSource(SRC_LINE, { type: "geojson", data: lineGeoJSON });
       map.addSource(SRC_DOTS, { type: "geojson", data: dotsGeoJSON });
+      // Shadow glow
       map.addLayer({ id: LYR_SHADOW, type: "line", source: SRC_LINE, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": ["get", "color"] as unknown as string, "line-width": 14, "line-opacity": 0.12, "line-blur": 6 } });
+      // Solid base line
       map.addLayer({ id: LYR_LINE, type: "line", source: SRC_LINE, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": ["get", "color"] as unknown as string, "line-width": 5, "line-opacity": 0.75 } });
+      // Shimmer overlay — animated travelling highlight
       map.addLayer({ id: LYR_SHIMMER, type: "line", source: SRC_LINE, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": 5, "line-opacity": 0, "line-dasharray": [3, 30] } });
+      // Stops
       map.addLayer({ id: LYR_DOTS, type: "circle", source: SRC_DOTS, minzoom: 10, paint: { "circle-radius": 5, "circle-color": "#fff", "circle-stroke-color": ["get", "color"] as unknown as string, "circle-stroke-width": 2.5, "circle-opacity": 0.9 } });
     }
 
+    // Animate shimmer: cycle a short bright dash along the line
     const animMap = map;
-    const PERIOD = 1800;
+    const PERIOD = 1800; // ms per full cycle
     const DASH = 3;
     const GAP = 30;
     const TOTAL = DASH + GAP;
     let start: number | null = null;
     function animate(ts: number) {
       if (!start) start = ts;
-      const t = ((ts - start) % PERIOD) / PERIOD;
+      const t = ((ts - start) % PERIOD) / PERIOD; // 0→1
       const offset = t * TOTAL;
       const pre = offset % TOTAL;
       const pattern = pre < DASH
@@ -1410,8 +1271,8 @@ export function TransitMap() {
       <div ref={containerRef} className="h-full w-full" />
 
       {/* TTC Lines legend + neighbourhood panel — top left */}
-      <div className="absolute top-6 left-6 flex flex-col gap-4 pointer-events-auto">
-        <div className="rounded-xl border border-[#D7D7D7] bg-white px-5 py-4 shadow-sm w-64">
+      <div className="absolute top-5 left-5 flex flex-col gap-4 pointer-events-auto">
+        <div className="rounded-xl border border-[#D7D7D7] bg-white px-5 py-4 shadow-sm w-56">
           <div className="mb-3">
             <p className="text-lg font-bold text-stone-800">Lines</p>
           </div>
@@ -1504,6 +1365,70 @@ export function TransitMap() {
           </div>
         </div>
       )}
+
+      {/* Chat panel — bottom right, above zoom controls */}
+      <ChatPanel
+        open={councilOpen}
+        onClose={() => setCouncilOpen(false)}
+        startNew={councilStartNew}
+        neighbourhoodNames={
+          [...selectedNeighbourhoods].map(
+            (code) => neighbourhoodsGeoJSONRef.current?.features.find(
+              (f) => f.properties?.AREA_SHORT_CODE === code
+            )?.properties?.AREA_NAME ?? code
+          )
+        }
+        stationNames={[...selectedStations].map((s) => s.split("::")[0]!)}
+        existingLineStops={[...ROUTES, ...customLines].flatMap((r) =>
+          r.stops.map((s) => ({ name: s.name, coords: s.coords, route: r.name }))
+        )}
+        routePanelOpen={generatedRoute !== null}
+        onRoutePreview={(routes) => setCouncilPreview(routes)}
+        onAddRoute={(parsed) => {
+          const id = `custom-${customLineCounterRef.current++}`;
+
+          // ── Estimate route stats from geometry ──────────────────────────────
+          const stops = parsed.stops;
+          let totalKm = 0;
+          for (let i = 1; i < stops.length; i++) {
+            totalKm += haversineKm(stops[i - 1]!.coords, stops[i]!.coords);
+          }
+          const costPerKm = parsed.type === "subway" ? 500 : parsed.type === "streetcar" ? 80 : 4; // $M/km
+          const costM = Math.round(totalKm * costPerKm);
+          const costStr = costM >= 1000
+            ? `$${(costM / 1000).toFixed(1)}B`
+            : `$${costM}M`;
+          const buildYears = parsed.type === "subway" ? Math.ceil(totalKm * 1.2 + 3) : parsed.type === "streetcar" ? Math.ceil(totalKm * 0.6 + 2) : Math.ceil(totalKm * 0.1 + 1);
+          const prRaw = parsed.prScore ?? 20; // /40 from council, default moderate
+          const prNorm = Math.round((prRaw / 40) * 10); // convert to /10
+          const approvalChance = Math.max(15, Math.min(92, 85 - prRaw * 1.5));
+          const minutesSaved = Math.round(totalKm * (parsed.type === "subway" ? 3.5 : 2));
+          const dollarsSaved = `$${(minutesSaved * 0.3).toFixed(1)}/trip`;
+
+          const newRoute: GeneratedRoute = {
+            id,
+            name: parsed.name,
+            shortName: parsed.name.slice(0, 2).toUpperCase(),
+            color: parsed.color,
+            textColor: "#ffffff",
+            type: parsed.type,
+            description: `AI-generated ${parsed.type} line · ${totalKm.toFixed(1)} km · ${stops.length} stops`,
+            frequency: parsed.type === "subway" ? "3 min" : parsed.type === "streetcar" ? "6 min" : "10 min",
+            stops: parsed.stops.map((s) => ({ name: s.name, coords: s.coords })),
+            stats: {
+              cost: costStr,
+              timeline: `${buildYears} years`,
+              costedTimeline: `${buildYears + 3}–${buildYears + 5} years`,
+              minutesSaved,
+              dollarsSaved,
+              percentageChance: Math.round(approvalChance),
+              prNightmareScore: prNorm,
+            },
+          };
+          setCustomLines((prev) => [...prev, newRoute]);
+          setGeneratedRoute(newRoute);
+        }}
+      />
 
       {/* Top-center toolbar */}
       <div className="pointer-events-none absolute top-5 left-0 right-0 flex justify-center gap-2">
@@ -1646,20 +1571,18 @@ export function TransitMap() {
           </div>
         )}
 
+        {/* Selection badge — absolutely anchored to the right of the toolbar, doesn't shift layout */}
+        {(selectedNeighbourhoods.size > 0 || selectedStations.size > 0) && (
+          <div className="pointer-events-auto absolute top-0 left-full ml-2 flex h-13 items-center whitespace-nowrap rounded-xl border border-indigo-200 bg-indigo-50 px-4 text-sm font-medium text-indigo-700 shadow-sm">
+            SELECTED: {selectedNeighbourhoods.size} neighbourhood{selectedNeighbourhoods.size !== 1 ? "s" : ""}, {selectedStations.size} stop{selectedStations.size !== 1 ? "s" : ""}
+          </div>
+        )}
         </div>
       </div>
 
-      {(selectedNeighbourhoods.size > 0 || selectedStations.size > 0) && !addStationToLine && (
-        <div className="pointer-events-none absolute top-[85px] left-0 right-0 flex justify-center">
-          <div className="pointer-events-auto flex items-center rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm text-indigo-700 shadow-sm">
-            {selectedNeighbourhoods.size} neighbourhood{selectedNeighbourhoods.size !== 1 ? "s" : ""}, {selectedStations.size} stop{selectedStations.size !== 1 ? "s" : ""} selected
-          </div>
-        </div>
-      )}
-
       {/* Side panel — only one shown at a time to prevent overlap */}
       <div
-        className={`pointer-events-none absolute right-6 bottom-6 top-6 flex items-stretch transition-all duration-300 ease-in-out ${
+        className={`pointer-events-none absolute right-9 bottom-10 flex items-stretch transition-all duration-300 ease-in-out ${hasSelection ? "top-20" : "top-10"} ${
           selectedRoute || showGeneratedPanel ? "translate-x-0" : "translate-x-[calc(100%+2.25rem)]"
         }`}
       >
@@ -1678,21 +1601,16 @@ export function TransitMap() {
           <GeneratedRoutePanel
             route={generatedRoute!}
             disabledStops={disabledStops}
-            selectedStop={selectedGeneratedStop}
+            isGenerating={councilOpen}
             onToggleStop={handleToggleStop}
-            onSelectStop={setSelectedGeneratedStop}
-            onRename={(name: string) => setGeneratedRoute((r) => r ? { ...r, name } : r)}
-            onDelete={() => setGeneratedRoute(null)}
             onClose={() => setGeneratedRoute(null)}
+            onRegenerate={handleGenerate}
           />
         ) : null}
       </div>
 
       {/* Custom map controls — bottom right */}
-      <div
-        className="pointer-events-none absolute bottom-6 flex flex-col gap-1 transition-[right] duration-300 ease-in-out"
-        style={{ right: selectedRoute || showGeneratedPanel ? "354px" : "24px" }}
-      >
+      <div className="pointer-events-none absolute right-[10px] bottom-[30px] flex flex-col gap-1">
         {/* Bird's eye toggle */}
         <button
           onClick={() => {
@@ -1703,7 +1621,7 @@ export function TransitMap() {
             map.easeTo({ pitch: next ? 0 : 40, bearing: next ? 0 : -10, duration: 600 });
           }}
           title="Bird's eye view"
-          className={`pointer-events-auto flex h-[38px] w-[38px] items-center justify-center rounded-xl shadow transition-all ${
+          className={`pointer-events-auto flex h-[38px] w-[38px] items-center justify-center rounded-md shadow transition-all ${
             isBirdsEye ? "bg-stone-800 text-white" : "bg-white text-stone-600 hover:bg-stone-50"
           }`}
         >
@@ -1713,7 +1631,7 @@ export function TransitMap() {
           </svg>
         </button>
         {/* Zoom controls */}
-        <div className="pointer-events-auto flex flex-col overflow-hidden rounded-xl shadow">
+        <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md shadow">
           <button
             onClick={() => mapRef.current?.zoomIn()}
             title="Zoom in"
@@ -1752,16 +1670,12 @@ export function TransitMap() {
           )}
         </div>
       )}
-          </button>
-        </div>
-      )}
 
       {/* Station popup */}
       {stationPopup && (
         <StationPopup
           popup={stationPopup}
           allRoutes={[...ROUTES, ...customLines]}
-          stationPopulations={stationPopulations}
           isDeletable={
             customLines.some((r) => r.id === stationPopup.routeId) ||
             (routeExtraStops.get(stationPopup.routeId) ?? []).some((s) => s.name === stationPopup.name)
@@ -1806,62 +1720,6 @@ export function TransitMap() {
           }}
         />
       )}
-
-
-      {/* Chat panel — bottom right, above zoom controls */}
-      <ChatPanel
-        open={councilOpen}
-        onClose={() => setCouncilOpen(false)}
-        startNew={councilStartNew}
-        neighbourhoodNames={
-          [...selectedNeighbourhoods].map(
-            (code) => neighbourhoodsGeoJSONRef.current?.features.find(
-              (f) => f.properties?.AREA_SHORT_CODE === code
-            )?.properties?.AREA_NAME ?? code
-          )
-        }
-        stationNames={[...selectedStations].map((s) => s.split("::")[0]!)}
-        existingLineStops={[...ROUTES, ...customLines].flatMap((r) =>
-          r.stops.map((s) => ({ name: s.name, coords: s.coords, route: r.name }))
-        )}
-        routePanelOpen={generatedRoute !== null}
-        onRoutePreview={(routes) => setCouncilPreview(routes)}
-        onAddRoute={(parsed: ParsedRoute) => {
-          const id = `custom-${customLineCounterRef.current++}`;
-          const stops = parsed.stops;
-          let totalKm = 0;
-          for (let i = 1; i < stops.length; i++) {
-            totalKm += haversineKm(stops[i - 1]!.coords, stops[i]!.coords);
-          }
-          const costPerKm = parsed.type === "subway" ? 500 : parsed.type === "streetcar" ? 80 : 4;
-          const costM = Math.round(totalKm * costPerKm);
-          const costStr = costM >= 1000 ? `$${(costM / 1000).toFixed(1)}B` : `$${costM}M`;
-          const buildYears = parsed.type === "subway" ? Math.ceil(totalKm * 1.2 + 3) : parsed.type === "streetcar" ? Math.ceil(totalKm * 0.6 + 2) : Math.ceil(totalKm * 0.1 + 1);
-          const prRaw = parsed.prScore ?? 20;
-          const prNorm = Math.round((prRaw / 40) * 10);
-          const approvalChance = Math.max(15, Math.min(92, 85 - prRaw * 1.5));
-          const minutesSaved = Math.round(totalKm * (parsed.type === "subway" ? 3.5 : 2));
-          const dollarsSaved = `$${(minutesSaved * 0.3).toFixed(1)}/trip`;
-          const newRoute: GeneratedRoute = {
-            id,
-            name: parsed.name,
-            color: parsed.color,
-            type: parsed.type,
-            stops: parsed.stops,
-            stats: {
-              cost: costStr,
-              buildTime: `${buildYears} yrs`,
-              ridership: `${Math.round(totalKm * 8 + stops.length * 3)}k/day`,
-              co2: `-${Math.round(totalKm * 2.1)}t/yr`,
-              approval: `${Math.round(approvalChance)}%`,
-              pr: `${prNorm}/10`,
-              commute: `−${minutesSaved}min`,
-              savings: dollarsSaved,
-            },
-          };
-          setGeneratedRoute(newRoute);
-        }}
-      />
 
       {/* New line modal */}
       {showNewLineModal && (

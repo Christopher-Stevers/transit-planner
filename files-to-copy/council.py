@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import re
 from typing import AsyncIterator
 
@@ -56,9 +55,12 @@ MANDATORY GEOMETRY RULES — violating any rule makes the route invalid:
 
 2. ONE DIRECTION ONLY: Pick start and end termini on opposite ends of the city. Travel in a single corridor. NO loops, NO U-turns, NO doubling back.
 
-3. GENERAL DIRECTION: The route should travel from one end of the city to the other without doubling back. Stops must generally progress toward the destination — do not backtrack more than one stop in a row. Gentle curves to reach mandatory targets are allowed and expected.
+3. PRIMARY AXIS — CRITICAL: Decide if your route runs primarily EAST-WEST or NORTH-SOUTH before placing any stops.
+   - East-West route: every stop's longitude must be STRICTLY GREATER (going east) or STRICTLY LESS (going west) than the previous stop. No exceptions.
+   - North-South route: every stop's latitude must be STRICTLY GREATER (going north) or STRICTLY LESS (going south) than the previous stop. No exceptions.
+   - Diagonal route (e.g. NE): longitude AND latitude must both progress in the same direction for every stop.
 
-4. NO SHARP TURNS: Avoid jarring direction reversals. Turns greater than 90° between consecutive segments are forbidden. Smooth curves and gradual direction changes (e.g. curving northwest then north) are fine and often necessary to serve the required neighbourhoods.
+4. NO SHARP TURNS: The bearing change between any two consecutive segments must never exceed 60°. If stop N+1 would require a turn >60° from N→N+1 to N+1→N+2, remove that stop and re-route. Z-shapes and S-curves are FORBIDDEN.
 
 5. SPACING: Consecutive stops must be 350–650 m apart. Never cluster stops within 300 m. Never leave a gap over 700 m.
 
@@ -79,7 +81,7 @@ MANDATORY GEOMETRY RULES — violating any rule makes the route invalid:
 
 PLANNER_A_SYSTEM = f"""You are Alex Chen, Senior Transit Planner at the City of Toronto. You champion ridership, equity, and underserved communities. You believe transit should reach people who need it most — low-income riders, seniors, areas without good service. You are optimistic and people-focused.
 
-Use the boardings data in the brief to identify the busiest stops and most underserved corridors. Gravitate toward population-dense areas and intersections with high demand. Follow major roads or rail corridors. Gentle curves to reach mandatory geographic targets are expected — the route does not need to be a perfectly straight line.
+Use the boardings data in the brief to identify the busiest stops and most underserved corridors. Gravitate toward population-dense areas and intersections with high demand. Follow major roads or rail corridors — do not invent diagonal cuts through neighbourhoods.
 
 For each proposed station: nearest intersection name + one sentence on who benefits (density, destinations, equity). Do NOT include coordinates in your prose.
 
@@ -164,51 +166,28 @@ def _sse(payload: dict) -> str:
     return "data: " + json.dumps(payload) + "\n\n"
 
 
-def _bearing(a: list[float], b: list[float]) -> float:
-    """Compass bearing in degrees (0–360) from point a to point b."""
-    lon1, lat1 = math.radians(a[0]), math.radians(a[1])
-    lon2, lat2 = math.radians(b[0]), math.radians(b[1])
-    dlon = lon2 - lon1
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
-    return (math.degrees(math.atan2(x, y)) + 360) % 360
-
-
-def _turn_angle(a: list[float], b: list[float], c: list[float]) -> float:
-    """Angle of the turn at point b, between segment a→b and b→c (0–180°)."""
-    b1 = _bearing(a, b)
-    b2 = _bearing(b, c)
-    diff = abs(b2 - b1) % 360
-    return diff if diff <= 180 else 360 - diff
-
-
 def _fix_route_geometry(route: dict) -> dict:
-    """Remove stops that cause a turn greater than 90° to eliminate zig-zags.
-
-    Iterates until no >90° turns remain. Terminal stops are never removed.
-    """
-    stops = list(route.get("stops", []))
-    if len(stops) < 3:
+    """Sort stops monotonically along the primary axis to eliminate Z/S shapes."""
+    stops = route.get("stops", [])
+    if len(stops) < 2:
         return route
 
-    changed = True
-    while changed:
-        changed = False
-        i = 1
-        while i < len(stops) - 1:
-            angle = _turn_angle(
-                stops[i - 1]["coords"],
-                stops[i]["coords"],
-                stops[i + 1]["coords"],
-            )
-            if angle > 90:
-                stops.pop(i)
-                changed = True
-                # don't advance i — re-check the new pair at this position
-            else:
-                i += 1
+    lons = [s["coords"][0] for s in stops]
+    lats = [s["coords"][1] for s in stops]
+    lon_range = max(lons) - min(lons)
+    lat_range = max(lats) - min(lats)
 
-    return {**route, "stops": stops}
+    # Determine primary axis and sort direction from first vs last stop
+    if lon_range >= lat_range:
+        # East-west dominant — sort by longitude
+        going_east = stops[-1]["coords"][0] > stops[0]["coords"][0]
+        sorted_stops = sorted(stops, key=lambda s: s["coords"][0], reverse=not going_east)
+    else:
+        # North-south dominant — sort by latitude
+        going_north = stops[-1]["coords"][1] > stops[0]["coords"][1]
+        sorted_stops = sorted(stops, key=lambda s: s["coords"][1], reverse=not going_north)
+
+    return {**route, "stops": sorted_stops}
 
 
 def _extract_route(text: str) -> dict | None:
@@ -258,10 +237,10 @@ async def run_council(
 
     yield _sse({"type": "status", "text": "Fetching transit data…"})
     try:
-        data_brief, stops, neighbourhood_centroids = await build_data_brief(neighbourhoods, stations)
+        data_brief, stops = await build_data_brief(neighbourhoods, stations)
     except Exception as exc:
         yield _sse({"type": "status", "text": f"Data fetch failed: {exc}. Continuing without transit data."})
-        data_brief, stops, neighbourhood_centroids = "No transit data available.", [], {}
+        data_brief, stops = "No transit data available.", []
 
     yield _sse({"type": "status", "text": f"{len(stops)} stops found. Assembling council…"})
 
@@ -283,28 +262,11 @@ async def run_council(
 
     # Shared brief (concise)
     type_str = f"REQUIRED MODE: {line_type}. " if line_type else "REQUIRED MODE: subway. All routes must use type \"subway\". "
-
-    # Build hard geographic targets: neighbourhood centroids give agents precise coordinates
-    if neighbourhood_centroids:
-        geo_lines = "\n".join(
-            f"  - {name}: lon {lon:.4f}, lat {lat:.4f}"
-            for name, (lon, lat) in neighbourhood_centroids.items()
-        )
-        geo_constraint = (
-            f"\n\n## MANDATORY GEOGRAPHIC TARGETS\n"
-            f"The route MUST pass through or directly serve each of these locations. "
-            f"Place at least one stop within 500 m of each centroid coordinate:\n"
-            f"{geo_lines}"
-        )
-    else:
-        geo_constraint = ""
-
     brief = (
         f"# Planning Brief\n"
         f"Serve: {', '.join(neighbourhoods) or 'Toronto'}. "
         f"Connect: {', '.join(stations) or 'None specified'}. "
-        f"{type_str}"
-        f"{geo_constraint}\n\n"
+        f"{type_str}\n\n"
         f"## Stop demand data\n{data_brief}"
     )
     if existing_lines:
@@ -334,8 +296,7 @@ async def run_council(
         # ── R1: Planner A initial proposal ────────────────────────────────────
         full_a = ""
         async for sse_chunk, full_a in _turn(ag("planner_a"), sessions["planner_a"],
-            brief + "\n\nPropose 6–20 stations. Your route MUST pass through the MANDATORY GEOGRAPHIC TARGETS listed above — "
-            "place stops near those coordinates. Name each station by nearest intersection, one sentence justification each. Output route block."):
+            brief + "\n\nPropose 6–20 stations. Name each by nearest intersection, one sentence justification each. Output route block."):
             yield sse_chunk
         route_a = _extract_route(full_a)
         if route_a: yield _sse({"type": "route_update", "route": route_a, "round": 1})
@@ -399,8 +360,7 @@ async def run_council(
         full_reb = ""
         async for sse_chunk, full_reb in _turn(ag("rebuttal"), sessions["rebuttal"],
             brief + f"\n\n**Alex:** {full_a}\n**Jordan:** {full_b}\n**Margaret:** {full_n}\n**Devon:** {full_pr}\n\n"
-            "Issue joint rebuttal. Defend or replace the 1–2 most contested stations. "
-            "The final route MUST still pass through the MANDATORY GEOGRAPHIC TARGETS in the brief. Output compromise route block."):
+            "Issue joint rebuttal. Defend or replace the 1–2 most contested stations. Output compromise route block."):
             yield sse_chunk
         route_reb = _extract_route(full_reb)
         if route_reb: yield _sse({"type": "route_update", "route": route_reb, "round": 5})
@@ -410,8 +370,7 @@ async def run_council(
         async for sse_chunk, full_com in _turn(ag("commission"), sessions["commission"],
             brief + f"\n\n**Alex:** {full_a}\n**Jordan:** {full_b}\n**Margaret:** {full_n}\n"
             f"**Devon:** {full_pr}\n**Rebuttal:** {full_reb}\n\n"
-            "Rule on each contested station. Commit to mitigations. Revised PR score. "
-            "The final route MUST pass through the MANDATORY GEOGRAPHIC TARGETS in the brief. Output final route block."):
+            "Rule on each contested station. Commit to mitigations. Revised PR score. Output final route block."):
             yield sse_chunk
 
         route_final = _extract_route(full_com) or route_reb or current

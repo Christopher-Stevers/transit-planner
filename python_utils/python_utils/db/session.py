@@ -48,6 +48,7 @@ engine: Engine = create_engine(
     echo=_get_sql_echo(),
     future=True,
     pool_pre_ping=True,
+    connect_args={"connect_timeout": 5},
 )
 
 

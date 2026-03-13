@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from python_utils.python_utils.db.session import engine
+from python_utils.db.session import engine
 
 # ── Neighbourhood GeoJSON ──────────────────────────────────────────────────────
 
@@ -121,10 +121,12 @@ async def get_stops_near_point(
     return await loop.run_in_executor(None, _run_stops_near_point, lon, lat, radius_m)
 
 
-def _neighbourhood_bbox_and_centroid(
-    feature: dict,
-) -> tuple[tuple[float, float, float, float], tuple[float, float]] | None:
-    """Return (bbox, centroid) for a GeoJSON feature, or None if geometry is empty."""
+async def get_stops_in_neighbourhood(neighbourhood_name: str) -> list[dict[str, Any]]:
+    """Return stops inside the bounding box of a named neighbourhood."""
+    feature = await find_neighbourhood(neighbourhood_name)
+    if not feature:
+        return []
+
     coords_flat: list[tuple[float, float]] = []
 
     def _collect(geom: dict) -> None:
@@ -139,35 +141,14 @@ def _neighbourhood_bbox_and_centroid(
 
     _collect(feature["geometry"])
     if not coords_flat:
-        return None
+        return []
 
     lons = [c[0] for c in coords_flat]
     lats = [c[1] for c in coords_flat]
     bbox = (min(lons), min(lats), max(lons), max(lats))
-    centroid = (sum(lons) / len(lons), sum(lats) / len(lats))
-    return bbox, centroid
 
-
-async def get_stops_in_neighbourhood(
-    neighbourhood_name: str,
-) -> tuple[list[dict[str, Any]], tuple[float, float] | None]:
-    """Return (stops_in_bbox, centroid) for a named neighbourhood.
-
-    centroid is (lon, lat) of the neighbourhood polygon centroid, or None if
-    the neighbourhood is not found in the GeoJSON.
-    """
-    feature = await find_neighbourhood(neighbourhood_name)
-    if not feature:
-        return [], None
-
-    result = _neighbourhood_bbox_and_centroid(feature)
-    if not result:
-        return [], None
-
-    bbox, centroid = result
     loop = asyncio.get_event_loop()
-    stops = await loop.run_in_executor(None, _run_stops_in_bbox, *bbox)
-    return stops, centroid
+    return await loop.run_in_executor(None, _run_stops_in_bbox, *bbox)
 
 
 # ── Formatting helpers ─────────────────────────────────────────────────────────
@@ -193,24 +174,18 @@ def format_stops_summary(stops: list[dict[str, Any]], max_show: int = 8) -> str:
 async def build_data_brief(
     neighbourhoods: list[str],
     station_names: list[str],
-) -> tuple[str, list[dict], dict[str, tuple[float, float]]]:
+) -> tuple[str, list[dict]]:
     """
     Fetch context data for all required neighbourhoods and named stations.
-    Returns (formatted_brief_text, list_of_all_stops_with_coords, neighbourhood_centroids).
-    neighbourhood_centroids maps name → (lon, lat) centroid.
+    Returns (formatted_brief_text, list_of_all_stops_with_coords).
     """
     sections: list[str] = []
     all_stops: list[dict] = []
-    neighbourhood_centroids: dict[str, tuple[float, float]] = {}
 
     for name in neighbourhoods:
-        stops, centroid = await get_stops_in_neighbourhood(name)
+        stops = await get_stops_in_neighbourhood(name)
         all_stops.extend(stops)
-        if centroid:
-            neighbourhood_centroids[name] = centroid
-            section = f"**{name}** (centroid: {centroid[0]:.4f}, {centroid[1]:.4f})\n"
-        else:
-            section = f"**{name}** (location unknown)\n"
+        section = f"**{name}**\n"
         section += format_stops_summary(stops)
         sections.append(section)
 
@@ -242,4 +217,4 @@ async def build_data_brief(
         sections.append("**Required connection stations**\n" + "\n".join(station_brief_lines))
 
     brief = "\n\n".join(sections) if sections else "No specific location data available."
-    return brief, all_stops, neighbourhood_centroids
+    return brief, all_stops

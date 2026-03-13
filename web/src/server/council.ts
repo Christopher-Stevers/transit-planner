@@ -273,7 +273,7 @@ export async function* runCouncil(input: CouncilInput): AsyncGenerator<string> {
     let fullA = "";
     for await (const { chunk, full } of turn(
       ag("planner_a"), sessions["planner_a"]!,
-      brief + "\n\nPropose 6–10 stations. For each, justify on merit: population density served, " +
+      brief + "\n\nPropose 6–20 stations. For each, justify on merit: population density served, " +
       "distance from nearest existing station, and cost contribution to total route length. " +
       "Do not retain a stop because of where it falls in sequence — every stop must earn its place. Output route block.",
     )) { yield chunk; fullA = full; }
