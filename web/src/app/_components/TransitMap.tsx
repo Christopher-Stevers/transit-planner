@@ -1752,9 +1752,7 @@ export function TransitMap() {
           )}
         </div>
       )}
-          </button>
-        </div>
-      )}
+
 
       {/* Station popup */}
       {stationPopup && (
