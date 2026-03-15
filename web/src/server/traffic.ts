@@ -41,8 +41,16 @@ function isValidLineStringCoordinates(value: unknown): value is [number, number]
   return Array.isArray(value) && value.length >= 2 && value.every(isValidPosition);
 }
 
-function normalizeTrafficGeometry(raw: TrafficMapRow["geom"]): GeoJSON.LineString | null {
-  if (!raw) return null;
+function isValidMultiLineStringCoordinates(value: unknown): value is [number, number][][] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(isValidLineStringCoordinates)
+  );
+}
+
+function normalizeTrafficGeometries(raw: TrafficMapRow["geom"]): GeoJSON.LineString[] {
+  if (!raw) return [];
 
   const parsed: unknown =
     typeof raw === "string"
@@ -55,16 +63,23 @@ function normalizeTrafficGeometry(raw: TrafficMapRow["geom"]): GeoJSON.LineStrin
         })()
       : raw;
 
-  if (!parsed || typeof parsed !== "object") return null;
+  if (!parsed || typeof parsed !== "object") return [];
 
   const geom = parsed as { type?: unknown; coordinates?: unknown };
-  if (geom.type !== "LineString") return null;
-  if (!isValidLineStringCoordinates(geom.coordinates)) return null;
 
-  return {
-    type: "LineString",
-    coordinates: geom.coordinates,
-  };
+  if (geom.type === "LineString") {
+    if (!isValidLineStringCoordinates(geom.coordinates)) return [];
+    return [{ type: "LineString", coordinates: geom.coordinates }];
+  }
+
+  if (geom.type === "MultiLineString") {
+    if (!isValidMultiLineStringCoordinates(geom.coordinates)) return [];
+    return geom.coordinates
+      .filter((coords) => coords.length >= 2)
+      .map((coords) => ({ type: "LineString", coordinates: coords }));
+  }
+
+  return [];
 }
 
 export async function fetchTrafficData(): Promise<GeoJSON.FeatureCollection> {
@@ -73,22 +88,20 @@ export async function fetchTrafficData(): Promise<GeoJSON.FeatureCollection> {
     "id, geom, avg_traffic, traffic_color",
   );
 
-  const features: GeoJSON.Feature[] = rows
-    .map((r) => {
-      const geometry = normalizeTrafficGeometry(r.geom);
-      if (!geometry) return null;
+  const features: GeoJSON.Feature[] = rows.flatMap((r) => {
+    const geometries = normalizeTrafficGeometries(r.geom);
+    if (geometries.length === 0) return [];
 
-      return {
-        type: "Feature",
-        properties: {
-          id: r.id,
-          avg_traffic: r.avg_traffic,
-          traffic_color: r.traffic_color,
-        },
-        geometry,
-      } satisfies GeoJSON.Feature<GeoJSON.LineString>;
-    })
-    .filter((f): f is GeoJSON.Feature<GeoJSON.LineString> => f !== null);
+    return geometries.map((geometry) => ({
+      type: "Feature",
+      properties: {
+        id: r.id,
+        avg_traffic: r.avg_traffic,
+        traffic_color: r.traffic_color,
+      },
+      geometry,
+    } satisfies GeoJSON.Feature<GeoJSON.LineString>));
+  });
 
   return { type: "FeatureCollection", features };
 }
