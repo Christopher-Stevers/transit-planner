@@ -446,16 +446,16 @@ export function TransitMap() {
       .then((fc: GeoJSON.FeatureCollection) => {
         if (cancelled) return;
         setTrafficGeoJSON(fc);
-        setTrafficLoading(false);
         const map = mapRef.current;
-        console.log("map",map)
-        if (map) {
+        if (map && map.isStyleLoaded()) {
           const src = map.getSource("traffic") as mapboxgl.GeoJSONSource | undefined;
           if (src) src.setData(fc);
         }
       })
       .catch((err) => {
         console.error("Failed to fetch traffic data:", err);
+      })
+      .finally(() => {
         if (!cancelled) setTrafficLoading(false);
       });
     return () => { cancelled = true; };
@@ -699,10 +699,10 @@ export function TransitMap() {
         firstLabelLayer,
       );
 
-      // Population heatmap — data may arrive before or after map load
+      // Population heatmap — initialize with empty data, then sync via effect
       map.addSource("population", {
         type: "geojson",
-        data: populationGeoJSON ?? { type: "FeatureCollection" as const, features: [] },
+        data: { type: "FeatureCollection" as const, features: [] },
       });
 
       // Population heatmap — fades out as you zoom in
@@ -760,10 +760,10 @@ export function TransitMap() {
         firstLabelLayer,
       );
 
-      // Traffic lines — colored by avg_speed
+      // Traffic lines — initialize with empty data, then sync via effect
       map.addSource("traffic", {
         type: "geojson",
-        data: trafficGeoJSON ?? { type: "FeatureCollection" as const, features: [] },
+        data: { type: "FeatureCollection" as const, features: [] },
       });
 
       map.addLayer(
@@ -1013,6 +1013,22 @@ export function TransitMap() {
       mapRef.current = null;
     };
   }, []);
+
+  // ── keep population source in sync when data arrives after map load
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !populationGeoJSON) return;
+    const src = map.getSource("population") as mapboxgl.GeoJSONSource | undefined;
+    if (src) src.setData(populationGeoJSON);
+  }, [populationGeoJSON, mapLoaded]);
+
+  // ── keep traffic source in sync when data arrives after map load
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !trafficGeoJSON) return;
+    const src = map.getSource("traffic") as mapboxgl.GeoJSONSource | undefined;
+    if (src) src.setData(trafficGeoJSON);
+  }, [trafficGeoJSON, mapLoaded]);
 
   // ── population visibility toggle (heatmap + points)
   useEffect(() => {
