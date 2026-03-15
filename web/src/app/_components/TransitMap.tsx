@@ -465,6 +465,7 @@ export function TransitMap() {
     if (!containerRef.current || mapRef.current) return;
 
     mapboxgl.accessToken = TOKEN;
+    console.log(TOKEN, "my token")
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
