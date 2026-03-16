@@ -29,6 +29,20 @@ export function NewLineModal({
           onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) onConfirm(name.trim(), color, type); }}
         />
         <div className="mt-3">
+          <p className="mb-1.5 text-xs font-semibold text-stone-500">Type</p>
+          <div className="flex gap-1.5">
+            {(["subway", "streetcar", "bus"] as Route["type"][]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setType(t)}
+                className={`flex-1 rounded-lg border py-1.5 text-xs font-medium capitalize transition-colors ${type === t ? "border-stone-800 bg-stone-900 text-white" : "border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-700"}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3">
           <p className="mb-1.5 text-xs font-semibold text-stone-500">Color</p>
           <div className="flex flex-wrap gap-2">
             {PRESET_COLORS.map((c) => (

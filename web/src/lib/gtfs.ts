@@ -103,10 +103,10 @@ function stopKey(stop: {
 /** Map our route type to the GTFS route_type integer. */
 function gtfsRouteType(type: Route["type"]): number {
   switch (type) {
-    case "subway":    return 1; // Metro / subway
-    case "lrt":       return 0; // Tram / LRT
-    case "streetcar": return 0; // Tram / streetcar
-    case "bus":       return 3; // Bus
+    case "subway":    return 1;   // Metro / subway
+    case "lrt":       return 0;   // Tram / LRT (standard tram type)
+    case "streetcar": return 900; // City tram / streetcar (GTFS extended type)
+    case "bus":       return 3;   // Bus
   }
 }
 
@@ -156,20 +156,10 @@ function computeArrivalOffsets(
 /**
  * Generate all GTFS files for the given routes.
  *
- * @param routes     All routes to include, base + custom.
- * @param extraStops Map of routeId → extra stop list.  When non-empty for a
- *                   route, replaces the route's base stop list (mirrors the
- *                   render logic in TransitMap).
+ * @param routes  All routes to include. Stops are taken directly from each route.
  */
-export function generateGTFS(
-  routes: Route[],
-  extraStops: Map<string, { name: string; coords: [number, number] }[]>,
-): GTFSFiles {
-  // ── 1. Merge extra stops into each route ──────────────────────────────────
-  const resolved = routes.map((r) => {
-    const extra = extraStops.get(r.id) ?? [];
-    return { ...r, stops: extra.length > 0 ? extra : r.stops };
-  });
+export function generateGTFS(routes: Route[]): GTFSFiles {
+  const resolved = routes;
 
   // ── 2. agency.txt ─────────────────────────────────────────────────────────
   const agencyRows: CsvRow[] = [
@@ -234,7 +224,9 @@ export function generateGTFS(
     const sid          = serviceId(r);
     const headway      = r.servicePattern?.headwayMinutes ?? 5;
     const startHour    = r.servicePattern?.startHour ?? 6;
-    const endHour      = r.servicePattern?.endHour ?? 24;
+    const rawEndHour   = r.servicePattern?.endHour ?? 24;
+    // endHour ≤ startHour means the service runs past midnight (e.g. 5→1 = 5am to 1am next day)
+    const endHour      = rawEndHour <= startHour ? rawEndHour + 24 : rawEndHour;
     const headsign     = r.stops[r.stops.length - 1]?.name ?? r.name;
     const arrivalOffsets = computeArrivalOffsets(r.stops, r.type);
 

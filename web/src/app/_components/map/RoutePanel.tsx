@@ -7,8 +7,6 @@ export function RoutePanel({
   route,
   selectedStop,
   stationPopulations,
-  extraStops,
-  isCustomLine,
   onDeleteStop,
   onDeleteLine,
   onSnapToRoads,
@@ -17,8 +15,6 @@ export function RoutePanel({
   route: Route;
   selectedStop: string | null;
   stationPopulations: Map<string, number>;
-  extraStops: { name: string; coords: [number, number] }[];
-  isCustomLine?: boolean;
   onDeleteStop: (name: string) => void;
   onDeleteLine?: () => void;
   /** Called when the user requests road-snapping. Resolves when done, throws on error. */
@@ -29,8 +25,7 @@ export function RoutePanel({
   const [snapError, setSnapError] = useState<string | null>(null);
   const rawPop = selectedStop ? stationPopulations.get(selectedStop) : undefined;
   const popServed = rawPop !== undefined ? Math.max(2314, rawPop) : undefined;
-  const allStops = [...route.stops, ...extraStops];
-  const extraNames = new Set(extraStops.map((s) => s.name));
+  const allStops = route.stops;
 
   return (
     <div className="pointer-events-auto flex h-full w-80 flex-col overflow-hidden rounded-2xl bg-white" style={{ border: "0.93px solid #BEB7B4" }}>
@@ -60,7 +55,7 @@ export function RoutePanel({
         <div className="mx-5 mt-0 rounded-xl bg-stone-50 px-4 py-3">
           <p className="text-xs font-semibold text-stone-500">Population Served</p>
           <p className="mt-1 text-2xl font-bold text-stone-800">{popServed.toLocaleString()}</p>
-          <p className="text-[11px] text-stone-400">Nearest-station assignment, 5 km cutoff</p>
+          <p className="text-[11px] text-stone-400">Nearest-station assignment, {route.type === "streetcar" || route.type === "bus" ? "1" : "5"} km cutoff</p>
         </div>
       )}
 
@@ -77,7 +72,7 @@ export function RoutePanel({
           onClick={() => {
             sessionStorage.setItem(
               `timetable-${route.id}`,
-              JSON.stringify({ route, extraStops }),
+              JSON.stringify({ route }),
             );
             window.open(`/timetable/${route.id}`, "_blank");
           }}
@@ -93,7 +88,7 @@ export function RoutePanel({
         </button>
       </div>
 
-      {isCustomLine && onSnapToRoads && (
+      {onSnapToRoads && (
         <div className="mx-5 mt-3">
           <button
             disabled={snapState === "loading"}
@@ -131,7 +126,7 @@ export function RoutePanel({
         </div>
       )}
 
-      {isCustomLine && onDeleteLine && (
+      {onDeleteLine && (
         <div className="mx-5 mt-4">
           <button
             onClick={onDeleteLine}
@@ -151,7 +146,6 @@ export function RoutePanel({
         </p>
         <ol className="relative border-l-2" style={{ borderColor: route.color + "44" }}>
           {allStops.map((stop, i) => {
-            const isExtra = extraNames.has(stop.name);
             return (
               <li key={`${i}-${stop.name}`} className="group mb-0 flex items-center justify-between">
                 <div className="flex items-center min-w-0">
@@ -161,26 +155,22 @@ export function RoutePanel({
                       borderColor:
                         i === 0 || i === allStops.length - 1
                           ? route.color
-                          : isExtra
-                            ? route.color + "cc"
-                            : route.color + "88",
+                          : route.color + "88",
                     }}
                   />
-                  <span className={`py-1.5 pl-4 text-sm ${stop.name === selectedStop ? "font-bold text-stone-900" : isExtra ? "text-stone-600 italic" : "text-stone-700"}`}>
+                  <span className={`py-1.5 pl-4 text-sm ${stop.name === selectedStop ? "font-bold text-stone-900" : "text-stone-700"}`}>
                     {stop.name}
                   </span>
                 </div>
-                {isExtra && (
-                  <button
-                    onClick={() => onDeleteStop(stop.name)}
-                    className="mr-1 shrink-0 opacity-0 group-hover:opacity-100 rounded p-0.5 text-stone-300 hover:bg-red-50 hover:text-red-400 transition-all"
-                    title="Remove station"
-                  >
-                    <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                      <path d="M1 1l10 10M11 1L1 11"/>
-                    </svg>
-                  </button>
-                )}
+                <button
+                  onClick={() => onDeleteStop(stop.name)}
+                  className="mr-1 shrink-0 opacity-0 group-hover:opacity-100 rounded p-0.5 text-stone-300 hover:bg-red-50 hover:text-red-400 transition-all"
+                  title="Remove station"
+                >
+                  <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M1 1l10 10M11 1L1 11"/>
+                  </svg>
+                </button>
               </li>
             );
           })}

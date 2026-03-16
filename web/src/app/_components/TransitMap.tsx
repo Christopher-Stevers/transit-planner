@@ -54,13 +54,13 @@ export function TransitMap() {
 
   // ── line-editor state (declared before stationPopulations useMemo)
   const [addStationToLine, setAddStationToLine] = useState<string | null>(null);
-  const [routeExtraStops, setRouteExtraStops] = useState<Map<string, { name: string; coords: [number, number] }[]>>(new Map());
-  const [customLines, setCustomLines] = useState<Route[]>([]);
+  const [routes, setRoutes] = useState<Route[]>(() => [
+    ...ROUTES.filter((r) => r.type === "streetcar"),
+    ...ROUTES.filter((r) => r.type !== "bus" && r.type !== "streetcar"),
+  ]);
   const [importError, setImportError] = useState<string | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [exportProgress, setExportProgress] = useState<number | null>(null);
-  const [showExportReminder, setShowExportReminder] = useState(false);
-  const exportReminderShownRef = useRef(false);
   const [showIEDropdown, setShowIEDropdown] = useState(false);
   const ieDropdownRef = useRef<HTMLDivElement>(null);
   const [validationResult, setValidationResult] = useState<{
@@ -68,23 +68,20 @@ export function TransitMap() {
     context: "export" | "import";
   } | null>(null);
 
-  // Voronoi: assign each population point to its nearest station (5 km cutoff)
+  // Voronoi: assign each population point to its nearest station
+  // Cutoff: 5 km for subway/LRT, 1 km for streetcar/bus
   const stationPopulations = useMemo(() => {
     if (popRawData.length === 0) return new Map<string, number>();
-    const allStops: { name: string; coords: [number, number] }[] = [];
+    const allStops: { name: string; coords: [number, number]; maxKm: number }[] = [];
     const seen = new Set<string>();
-    const addStop = (stop: { name: string; coords: [number, number] }) => {
+    const cutoff = (type: Route["type"]) => (type === "streetcar" || type === "bus" ? 1 : 5);
+    const addStop = (stop: { name: string; coords: [number, number] }, type: Route["type"]) => {
       const key = `${stop.name}@${stop.coords[0]},${stop.coords[1]}`;
-      if (!seen.has(key)) { seen.add(key); allStops.push(stop); }
+      if (!seen.has(key)) { seen.add(key); allStops.push({ ...stop, maxKm: cutoff(type) }); }
     };
-    // Existing TTC routes
-    for (const route of ROUTES) for (const stop of route.stops) addStop(stop);
-    // Custom lines
-    for (const route of customLines) for (const stop of route.stops) addStop(stop);
-    // Extra stops added to any route (including custom lines)
-    for (const stops of routeExtraStops.values()) for (const stop of stops) addStop(stop);
-    return computeStationPopulations(popRawData, allStops, 5);
-  }, [popRawData, customLines, routeExtraStops]);
+    for (const route of routes) for (const stop of route.stops) addStop(stop, route.type);
+    return computeStationPopulations(popRawData, allStops);
+  }, [popRawData, routes]);
 
   const [hasBoundary, setHasBoundary] = useState(false);
   const [selectedNeighbourhoods, setSelectedNeighbourhoods] = useState<Set<string>>(new Set());
@@ -94,8 +91,8 @@ export function TransitMap() {
   const [showNewLineModal, setShowNewLineModal] = useState(false);
   const stopCounterRef = useRef(1);
   const customLineCounterRef = useRef(1);
-  const historyRef = useRef<{ stops: Map<string, { name: string; coords: [number, number] }[]>; counter: number }[]>([]);
-  const redoStackRef = useRef<{ stops: Map<string, { name: string; coords: [number, number] }[]>; counter: number }[]>([]);
+  const historyRef = useRef<{ routes: Route[]; counter: number }[]>([]);
+  const redoStackRef = useRef<{ routes: Route[]; counter: number }[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -115,14 +112,11 @@ export function TransitMap() {
   const selectedNeighbourhoodsRef = useRef<Set<string>>(new Set());
   const selectedStationsRef = useRef<Set<string>>(new Set());
   const addStationToLineRef = useRef<string | null>(null);
-  const customLinesRef = useRef<Route[]>([]);
-  const routeExtraStopsRef = useRef<Map<string, { name: string; coords: [number, number] }[]>>(new Map());
+  const routesRef = useRef<Route[]>([]);
   // Precomputed stop-dot layer IDs for click-hit-testing — avoids scanning
   // getStyle().layers (1000+ entries) on every map click. Updated when custom
   // lines are added/removed.
-  const stopDotLayerIdsRef = useRef<string[]>(
-    ["bus-stops-dot", ...ROUTES.map((r) => `stops-dot-${r.id}`)],
-  );
+  const stopDotLayerIdsRef = useRef<string[]>(["bus-stops-dot"]);
   // Blocks neighbourhood clicks for one tick after a polygon is completed,
   // preventing the closing double-click from immediately selecting a neighbourhood.
   const justCompletedBoundaryRef = useRef(false);
@@ -158,7 +152,7 @@ export function TransitMap() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
-    [...ROUTES, ...customLinesRef.current].forEach((route) => {
+    routesRef.current.forEach((route) => {
       const layerId = `stops-selected-${route.id}`;
       if (!map.getLayer(layerId)) return;
       const names = [...selectedStations]
@@ -178,24 +172,33 @@ export function TransitMap() {
   }, [addStationToLine]);
 
   useEffect(() => {
-    customLinesRef.current = customLines;
+    routesRef.current = routes;
     stopDotLayerIdsRef.current = [
       "bus-stops-dot",
-      ...ROUTES.map((r) => `stops-dot-${r.id}`),
-      ...customLines.map((r) => `stops-dot-${r.id}`),
+      ...routes.map((r) => `stops-dot-${r.id}`),
     ];
-  }, [customLines]);
-
-  useEffect(() => {
-    routeExtraStopsRef.current = routeExtraStops;
-  }, [routeExtraStops]);
+    // Update map sources for any routes whose stops changed
+    const map = mapRef.current;
+    if (map) {
+      for (const route of routes) {
+        if (map.getSource(`route-${route.id}`)) {
+          const allStops = route.stops;
+          (map.getSource(`route-${route.id}`) as mapboxgl.GeoJSONSource).setData(
+            allStops.length >= 2 ? routeToGeoJSON(route) : { type: "FeatureCollection", features: [] }
+          );
+          (map.getSource(`stops-${route.id}`) as mapboxgl.GeoJSONSource).setData(stopsToGeoJSON({ ...route, stops: allStops }));
+        }
+      }
+    }
+  }, [routes]);
 
   useEffect(() => {
     stationPopupRef.current = stationPopup;
   }, [stationPopup]);
 
   // ── Unsaved-changes guard ─────────────────────────────────────────────────
-  const hasUnsaved = customLines.length > 0 || routeExtraStops.size > 0;
+  const DEFAULT_ROUTE_IDS = new Set(ROUTES.map((r) => r.id));
+  const hasUnsaved = routes.some((r) => !DEFAULT_ROUTE_IDS.has(r.id));
 
   // Native browser dialog on tab close / refresh
   useEffect(() => {
@@ -204,14 +207,6 @@ export function TransitMap() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [hasUnsaved]);
-
-  // One-time export reminder modal — fires when the user first creates a custom line
-  // (not on stop edits, which happen during active editing)
-  useEffect(() => {
-    if (customLines.length === 0 || exportReminderShownRef.current) return;
-    exportReminderShownRef.current = true;
-    setShowExportReminder(true);
-  }, [customLines.length]);
 
   // Close the I/E dropdown when clicking outside it
   useEffect(() => {
@@ -246,13 +241,11 @@ export function TransitMap() {
     }
 
     // One stop per selected station (use existing coords)
-    const allRoutes = [...ROUTES, ...customLinesRef.current];
     for (const key of selectedStationsRef.current) {
       const [stationName, routeId] = key.split("::");
       if (!stationName || !routeId) continue;
-      const route = allRoutes.find((r) => r.id === routeId);
-      const allStops = [...(route?.stops ?? []), ...(routeExtraStopsRef.current.get(routeId) ?? [])];
-      const found = allStops.find((s) => s.name === stationName);
+      const route = routesRef.current.find((r) => r.id === routeId);
+      const found = route?.stops.find((s) => s.name === stationName);
       if (found) stops.push({ name: found.name, coords: found.coords });
     }
 
@@ -399,15 +392,15 @@ export function TransitMap() {
 
   function captureCurrentState() {
     return {
-      stops: new Map([...routeExtraStopsRef.current].map(([k, v]) => [k, [...v]])),
+      routes: [...routesRef.current],
       counter: stopCounterRef.current,
     };
   }
 
-  function applyHistoryState(state: { stops: Map<string, { name: string; coords: [number, number] }[]>; counter: number }) {
+  function applyHistoryState(state: { routes: Route[]; counter: number }) {
     stopCounterRef.current = state.counter;
-    routeExtraStopsRef.current = state.stops; // sync immediately so captureCurrentState is correct on rapid calls
-    setRouteExtraStops(state.stops);
+    routesRef.current = state.routes;
+    setRoutes(state.routes);
   }
 
   function handleUndo() {
@@ -430,7 +423,7 @@ export function TransitMap() {
 
   function snapshotHistory() {
     historyRef.current.push({
-      stops: new Map([...routeExtraStopsRef.current].map(([k, v]) => [k, [...v]])),
+      routes: [...routesRef.current],
       counter: stopCounterRef.current,
     });
     redoStackRef.current = [];
@@ -510,16 +503,16 @@ export function TransitMap() {
     drawModeRef.current = "normal";
   }
 
-  async function handleSnapToRoads(route: Route, stops: { name: string; coords: [number, number] }[]) {
+  async function handleSnapToRoads(route: Route) {
     const { snapToRoads } = await import("~/lib/road-snap");
-    const effectiveStops = stops.length > 0 ? stops : route.stops;
-    const shape = await snapToRoads(effectiveStops, TOKEN);
-    setCustomLines((prev) =>
+    const shape = await snapToRoads(route.stops, TOKEN);
+    setRoutes((prev) =>
       prev.map((r) => r.id === route.id ? { ...r, shape } : r),
     );
   }
 
   function handleDeleteCustomLine(routeId: string) {
+    snapshotHistory();
     const map = mapRef.current;
     if (map) {
       [`route-shadow-${routeId}`, `route-outline-${routeId}`, `route-line-${routeId}`, `stops-ring-${routeId}`, `stops-selected-${routeId}`, `stops-dot-${routeId}`].forEach((id) => {
@@ -529,8 +522,7 @@ export function TransitMap() {
         if (map.getSource(id)) map.removeSource(id);
       });
     }
-    setCustomLines((prev) => prev.filter((r) => r.id !== routeId));
-    setRouteExtraStops((prev) => { const next = new Map(prev); next.delete(routeId); return next; });
+    setRoutes((prev) => prev.filter((r) => r.id !== routeId));
     if (addStationToLine === routeId) setAddStationToLine(null);
     setSelectedRoute(null);
     setSelectedStop(null);
@@ -538,12 +530,9 @@ export function TransitMap() {
 
   function handleDeleteStop(stopName: string, routeId: string) {
     snapshotHistory();
-    setRouteExtraStops((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(routeId) ?? [];
-      next.set(routeId, existing.filter((s) => s.name !== stopName));
-      return next;
-    });
+    setRoutes((prev) =>
+      prev.map((r) => r.id === routeId ? { ...r, shape: undefined, stops: r.stops.filter((s) => s.name !== stopName) } : r)
+    );
   }
 
   function handleToggleStop(name: string) {
@@ -986,8 +975,9 @@ export function TransitMap() {
       const visibleBusRouteIds = new Set(
         BUS_ROUTES.filter((r) => !hiddenRoutes.has(r.id)).map((r) => r.id),
       );
-      const busLinesFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = BUS_ROUTES.map((r) => ({
+      const busLinesFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = BUS_ROUTES.map((r, idx) => ({
         type: "Feature" as const,
+        id: idx,
         properties: { routeId: r.id, color: r.color },
         geometry: {
           type: "LineString" as const,
@@ -1038,8 +1028,8 @@ export function TransitMap() {
         layout: { "line-join": "round", "line-cap": "round" },
         paint: {
           "line-color": ["get", "color"] as unknown as string,
-          "line-opacity": 0.7,
-          "line-width": 2,
+          "line-opacity": ["case", ["boolean", ["feature-state", "hovered"], false], 1.0, 0.7] as unknown as number,
+          "line-width": ["case", ["boolean", ["feature-state", "hovered"], false], 4, 2] as unknown as number,
         },
       });
 
@@ -1103,147 +1093,29 @@ export function TransitMap() {
         if (busRoute) { setSelectedRoute(busRoute); setSelectedStop(null); }
       });
 
-      map.on("mouseenter", "bus-line-layer", () => {
+      let hoveredBusFeatureId: number | string | null = null;
+
+      map.on("mousemove", "bus-line-layer", (e) => {
+        const featureId = e.features?.[0]?.id;
+        if (featureId === undefined || featureId === null) return;
         map.getCanvas().style.cursor = "pointer";
-        map.setPaintProperty("bus-line-layer", "line-width", 4);
-        setHoveredId("bus");
+        if (featureId !== hoveredBusFeatureId) {
+          if (hoveredBusFeatureId !== null) {
+            map.setFeatureState({ source: "bus-lines-source", id: hoveredBusFeatureId }, { hovered: false });
+          }
+          hoveredBusFeatureId = featureId;
+          map.setFeatureState({ source: "bus-lines-source", id: featureId }, { hovered: true });
+        }
       });
 
       map.on("mouseleave", "bus-line-layer", () => {
         map.getCanvas().style.cursor = "";
-        map.setPaintProperty("bus-line-layer", "line-width", 2);
-        setHoveredId(null);
+        if (hoveredBusFeatureId !== null) {
+          map.setFeatureState({ source: "bus-lines-source", id: hoveredBusFeatureId }, { hovered: false });
+          hoveredBusFeatureId = null;
+        }
       });
 
-      // Route lines + stops — streetcars first, then subways/LRTs on top (buses handled above)
-      const routesByZOrder = [
-        ...ROUTES.filter((r) => r.type === "streetcar"),
-        ...ROUTES.filter((r) => r.type !== "bus" && r.type !== "streetcar"),
-      ];
-      routesByZOrder.forEach((route) => {
-        const sc = route.type === "streetcar";
-        map.addSource(`route-${route.id}`, {
-          type: "geojson",
-          data: routeToGeoJSON(route),
-        });
-
-        map.addSource(`stops-${route.id}`, {
-          type: "geojson",
-          data: stopsToGeoJSON(route),
-        });
-
-        map.addLayer({
-          id: `route-shadow-${route.id}`,
-          type: "line",
-          source: `route-${route.id}`,
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: {
-            "line-color": route.color,
-            "line-width": sc ? 5 : 10,
-            "line-opacity": sc ? 0.08 : 0.12,
-            "line-blur": sc ? 3 : 4,
-          },
-        });
-
-        map.addLayer({
-          id: `route-outline-${route.id}`,
-          type: "line",
-          source: `route-${route.id}`,
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": route.color === "#FFCD00" ? "#E3A007" : route.color === "#00A650" ? "#005C2E" : route.color === "#B100CD" ? "#5B006B" : "#ffffff", "line-width": sc ? 5 : 11, "line-opacity": sc ? 0.7 : 0.9 },
-        });
-
-        map.addLayer({
-          id: `route-line-${route.id}`,
-          type: "line",
-          source: `route-${route.id}`,
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": route.color, "line-width": sc ? 3 : 7, "line-opacity": sc ? 0.85 : 1 },
-        });
-
-        map.addLayer({
-          id: `stops-ring-${route.id}`,
-          type: "circle",
-          source: `stops-${route.id}`,
-          minzoom: sc ? 13 : 11,
-          paint: {
-            "circle-radius": sc ? 3.5 : 6,
-            "circle-color": route.color,
-            "circle-opacity": 0.25,
-            "circle-stroke-width": 0,
-          },
-        });
-
-        map.addLayer({
-          id: `stops-selected-${route.id}`,
-          type: "circle",
-          source: `stops-${route.id}`,
-          minzoom: 11,
-          filter: ["==", ["get", "name"], "__none__"],
-          paint: {
-            "circle-radius": sc ? 5 : 9,
-            "circle-color": route.color,
-            "circle-opacity": 0.5,
-            "circle-stroke-width": sc ? 1.5 : 2,
-            "circle-stroke-color": "#ffffff",
-          },
-        });
-
-        map.addLayer({
-          id: `stops-dot-${route.id}`,
-          type: "circle",
-          source: `stops-${route.id}`,
-          minzoom: sc ? 13 : 11,
-          paint: {
-            "circle-radius": sc ? 2 : 3.5,
-            "circle-color": "#ffffff",
-            "circle-stroke-color": route.color,
-            "circle-stroke-width": sc ? 1.5 : 2,
-          },
-        });
-
-        map.on("click", `route-line-${route.id}`, () => { setSelectedRoute(route); setSelectedStop(null); });
-
-        map.on("mouseenter", `route-line-${route.id}`, () => {
-          map.getCanvas().style.cursor = "pointer";
-          map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 5 : 10);
-          setHoveredId(route.id);
-        });
-
-        map.on("mouseleave", `route-line-${route.id}`, () => {
-          map.getCanvas().style.cursor = "";
-          map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 3 : 7);
-          setHoveredId(null);
-        });
-
-        // Station dot click — toggle selection in select mode, else open sidebar
-        map.on("click", `stops-dot-${route.id}`, (e) => {
-          if (didDragStopRef.current) { didDragStopRef.current = false; return; }
-          const name = e.features?.[0]?.properties?.name as string | undefined;
-          if (!name) return;
-          e.originalEvent.stopPropagation();
-          if (drawModeRef.current === "select") {
-            const key = `${name}::${route.id}`;
-            const next = new Set(selectedStationsRef.current);
-            if (next.has(key)) next.delete(key); else next.add(key);
-            selectedStationsRef.current = next;
-            setSelectedStations(new Set(next));
-            return;
-          }
-          const { x, y } = e.point;
-          setStationPopup({ name, routeId: route.id, x, y, coords: [e.lngLat.lng, e.lngLat.lat] });
-          setSelectedRoute(route);
-          setSelectedStop(name);
-        });
-
-        map.on("mouseenter", `stops-dot-${route.id}`, () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-
-        map.on("mouseleave", `stops-dot-${route.id}`, () => {
-          map.getCanvas().style.cursor = "";
-        });
-      });
 
       // Map-level click: add station to selected line, or close popup
       map.on("click", (e) => {
@@ -1261,35 +1133,20 @@ export function TransitMap() {
           const tempName = `Station ${currentCounter}`;
           snapshotHistory();
           stopCounterRef.current = currentCounter + 1;
-          setRouteExtraStops((prev) => {
-            const next = new Map(prev);
-            const route = [...ROUTES, ...customLinesRef.current].find((r) => r.id === lineId);
-            const baseStops = route?.stops ?? [];
-            const extraStops = next.get(lineId) ?? [];
-            // When extraStops is non-empty it IS the full ordered sequence (includes base stops).
-            // When empty, start from baseStops. This lets us correctly insert before the first
-            // base stop, which [...baseStops, ...extraStops] rendering could never achieve.
-            const allCurrent = extraStops.length > 0 ? extraStops : baseStops;
+          setRoutes((prev) => prev.map((r) => {
+            if (r.id !== lineId) return r;
             const newStop = { name: tempName, coords };
-            if (allCurrent.length === 0) {
-              next.set(lineId, [newStop]);
-            } else {
-              // Find the best insertion point (terminus or middle of line)
-              const insertIdx = bestInsertIndex(coords, allCurrent);
-              const newAllStops = [...allCurrent.slice(0, insertIdx), newStop, ...allCurrent.slice(insertIdx)];
-              next.set(lineId, newAllStops);
-            }
-            return next;
-          });
+            if (r.stops.length === 0) return { ...r, shape: undefined, stops: [newStop] };
+            const insertIdx = bestInsertIndex(coords, r.stops);
+            const newStops = [...r.stops.slice(0, insertIdx), newStop, ...r.stops.slice(insertIdx)];
+            return { ...r, shape: undefined, stops: newStops };
+          }));
           // Geocode asynchronously and rename from temp name
           void reverseGeocodeStation(coords[0], coords[1]).then((geoName) => {
             if (!geoName) return;
-            setRouteExtraStops((prev) => {
-              const next = new Map(prev);
-              const stops = next.get(lineId) ?? [];
-              next.set(lineId, stops.map(s => s.name === tempName ? { ...s, name: geoName } : s));
-              return next;
-            });
+            setRoutes((prev) => prev.map((r) =>
+              r.id === lineId ? { ...r, stops: r.stops.map(s => s.name === tempName ? { ...s, name: geoName } : s) } : r
+            ));
           });
         }
       });
@@ -1317,10 +1174,7 @@ export function TransitMap() {
       if (e.key === "Backspace" || e.key === "Delete") {
         const popup = stationPopupRef.current;
         if (!popup) return;
-        const extraStops = routeExtraStopsRef.current.get(popup.routeId) ?? [];
-        const isCustomLine = customLinesRef.current.some((r) => r.id === popup.routeId);
-        const isDeletable = isCustomLine || extraStops.some((s) => s.name === popup.name);
-        if (!isDeletable) return;
+        if (!routesRef.current.some((r) => r.id === popup.routeId)) return;
         e.preventDefault();
         handleDeleteStop(popup.name, popup.routeId);
         setStationPopup(null);
@@ -1337,11 +1191,12 @@ export function TransitMap() {
         const prev = historyRef.current.pop();
         if (prev !== undefined) {
           redoStackRef.current.push({
-            stops: new Map([...routeExtraStopsRef.current].map(([k, v]) => [k, [...v]])),
+            routes: [...routesRef.current],
             counter: stopCounterRef.current,
           });
           stopCounterRef.current = prev.counter;
-          setRouteExtraStops(prev.stops);
+          routesRef.current = prev.routes;
+          setRoutes(prev.routes);
           setCanUndo(historyRef.current.length > 0);
           setCanRedo(true);
         }
@@ -1350,11 +1205,12 @@ export function TransitMap() {
         const next = redoStackRef.current.pop();
         if (next !== undefined) {
           historyRef.current.push({
-            stops: new Map([...routeExtraStopsRef.current].map(([k, v]) => [k, [...v]])),
+            routes: [...routesRef.current],
             counter: stopCounterRef.current,
           });
           stopCounterRef.current = next.counter;
-          setRouteExtraStops(next.stops);
+          routesRef.current = next.routes;
+          setRoutes(next.routes);
           setCanUndo(true);
           setCanRedo(redoStackRef.current.length > 0);
         }
@@ -1446,8 +1302,8 @@ export function TransitMap() {
       }
     }
 
-    // Non-bus routes: use setLayoutProperty per route as before
-    for (const route of ROUTES) {
+    // Non-bus routes: cover all routes in the unified model
+    for (const route of routesRef.current) {
       const wasHidden = prev.has(route.id);
       const isHidden  = hiddenRoutes.has(route.id);
       if (wasHidden === isHidden) continue;
@@ -1579,28 +1435,6 @@ export function TransitMap() {
     void hoveredId;
   }, [hoveredId]);
 
-  // ── update stop sources when extra stops are added or removed (including undo)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded) return;
-    // Iterate ALL routes (not just those with entries) so undo-removed entries are handled
-    [...ROUTES, ...customLinesRef.current].forEach((route) => {
-      const extraStops = routeExtraStops.get(route.id) ?? [];
-      const allStops = extraStops.length > 0 ? extraStops : route.stops;
-      const stopSrc = map.getSource(`stops-${route.id}`) as mapboxgl.GeoJSONSource | undefined;
-      if (stopSrc) stopSrc.setData(stopsToGeoJSON({ ...route, stops: allStops }));
-      const lineSrc = map.getSource(`route-${route.id}`) as mapboxgl.GeoJSONSource | undefined;
-      if (lineSrc) {
-        if (allStops.length >= 2) {
-          lineSrc.setData(routeToGeoJSON({ ...route, stops: allStops, shape: undefined }));
-        } else if (route.shape || route.stops.length >= 2) {
-          lineSrc.setData(routeToGeoJSON(route));
-        } else {
-          lineSrc.setData({ type: "FeatureCollection", features: [] });
-        }
-      }
-    });
-  }, [routeExtraStops, mapLoaded]);
 
 
   // ── Council preview: render animated multi-route layer ────────────────────
@@ -1788,21 +1622,18 @@ export function TransitMap() {
 	  useEffect(() => {
 	    const map = mapRef.current;
 	    if (!map || !mapLoaded) return;
-	    customLines.forEach((route) => {
+	    routes.forEach((route) => {
       if (map.getSource(`route-${route.id}`)) return; // already added
-      // Seed with any extra stops already set (e.g. from AI route generation)
-      const seededExtra = routeExtraStopsRef.current.get(route.id) ?? [];
-      const seededStops = [...route.stops, ...seededExtra];
-      map.addSource(`route-${route.id}`, { type: "geojson", data: seededStops.length >= 2 ? routeToGeoJSON({ ...route, stops: seededStops, shape: undefined }) : routeToGeoJSON(route) });
-      map.addSource(`stops-${route.id}`, { type: "geojson", data: stopsToGeoJSON({ ...route, stops: seededStops }) });
+      map.addSource(`route-${route.id}`, { type: "geojson", data: route.stops.length >= 2 ? routeToGeoJSON(route) : routeToGeoJSON(route) });
+      map.addSource(`stops-${route.id}`, { type: "geojson", data: stopsToGeoJSON(route) });
 	      const sc = route.type === "streetcar";
 	      const bus = route.type === "bus";
 	      map.addLayer({ id: `route-shadow-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": bus ? 2 : sc ? 5 : 10, "line-opacity": bus ? 0.05 : sc ? 0.08 : 0.12, "line-blur": bus ? 2 : sc ? 3 : 4 } });
 	      map.addLayer({ id: `route-outline-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": bus ? 2 : sc ? 5 : 11, "line-opacity": bus ? 0.5 : sc ? 0.7 : 0.9 } });
 	      map.addLayer({ id: `route-line-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": bus ? 1.5 : sc ? 3 : 7, "line-opacity": bus ? 0.7 : sc ? 0.85 : 1 } });
-	      map.addLayer({ id: `stops-ring-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: bus ? 15 : sc ? 13 : 11, paint: { "circle-radius": bus ? 2 : sc ? 3.5 : 6, "circle-color": route.color, "circle-opacity": 0.25, "circle-stroke-width": 0 } });
-	      map.addLayer({ id: `stops-selected-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 11, filter: ["==", ["get", "name"], "__none__"], paint: { "circle-radius": bus ? 3.5 : sc ? 5 : 9, "circle-color": route.color, "circle-opacity": 0.5, "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2, "circle-stroke-color": "#ffffff" } });
-	      map.addLayer({ id: `stops-dot-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: bus ? 15 : sc ? 13 : 11, paint: { "circle-radius": bus ? 1.5 : sc ? 2 : 3.5, "circle-color": "#ffffff", "circle-stroke-color": route.color, "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2 } });
+	      map.addLayer({ id: `stops-ring-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: bus ? 13 : sc ? 12 : 11, paint: { "circle-radius": bus ? 2 : sc ? 3.5 : 6, "circle-color": route.color, "circle-opacity": 0.25, "circle-stroke-width": 0 } });
+	      map.addLayer({ id: `stops-selected-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 9, filter: ["==", ["get", "name"], "__none__"], paint: { "circle-radius": bus ? 3.5 : sc ? 5 : 9, "circle-color": route.color, "circle-opacity": 0.5, "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2, "circle-stroke-color": "#ffffff" } });
+	      map.addLayer({ id: `stops-dot-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: bus ? 13 : sc ? 12 : 11, paint: { "circle-radius": bus ? 1.5 : sc ? 2 : 3.5, "circle-color": "#ffffff", "circle-stroke-color": route.color, "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2 } });
 	      map.on("click", `route-line-${route.id}`, () => { setSelectedRoute(route); setSelectedStop(null); });
 	      map.on("mouseenter", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = "pointer"; map.setPaintProperty(`route-line-${route.id}`, "line-width", bus ? 3 : sc ? 5 : 10); });
 	      map.on("mouseleave", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = ""; map.setPaintProperty(`route-line-${route.id}`, "line-width", bus ? 1.5 : sc ? 3 : 7); });
@@ -1826,7 +1657,7 @@ export function TransitMap() {
       map.on("mouseenter", `stops-dot-${route.id}`, () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", `stops-dot-${route.id}`, () => { map.getCanvas().style.cursor = ""; });
     });
-  }, [customLines, mapLoaded]);
+  }, [routes, mapLoaded]);
 
   // ── drag-to-reposition stops while in edit mode
   useEffect(() => {
@@ -1843,10 +1674,9 @@ export function TransitMap() {
     const onMouseDown = (e: mapboxgl.MapMouseEvent & { features?: any[] }) => {
       const name = e.features?.[0]?.properties?.name as string | undefined;
       if (!name) return;
-      // Only drag stops that belong to extraStops (or all stops on a custom line)
-      const extraStops = routeExtraStopsRef.current.get(lineId) ?? [];
-      const isCustomLine = customLinesRef.current.some((r) => r.id === lineId);
-      if (!isCustomLine && !extraStops.some((s) => s.name === name)) return;
+      // Allow dragging any stop (all routes are now editable)
+      const route = routesRef.current.find((r) => r.id === lineId);
+      if (!route) return;
       e.preventDefault();
       dragging = { name, coords: [e.lngLat.lng, e.lngLat.lat] };
       map.dragPan.disable();
@@ -1858,12 +1688,9 @@ export function TransitMap() {
       const newCoords: [number, number] = [e.lngLat.lng, e.lngLat.lat];
       dragging.coords = newCoords;
       // Update map sources directly — no React re-render for smooth dragging
-      const route = [...ROUTES, ...customLinesRef.current].find((r) => r.id === lineId);
+      const route = routesRef.current.find((r) => r.id === lineId);
       if (!route) return;
-      const baseStops = route.stops ?? [];
-      const extraStops = routeExtraStopsRef.current.get(lineId) ?? [];
-      const updatedExtra = extraStops.map((s) => s.name === dragging!.name ? { ...s, coords: newCoords } : s);
-      const allStops = updatedExtra.length > 0 ? updatedExtra : baseStops;
+      const allStops = route.stops.map((s) => s.name === dragging!.name ? { ...s, coords: newCoords } : s);
       const stopSrc = map.getSource(`stops-${lineId}`) as mapboxgl.GeoJSONSource | undefined;
       if (stopSrc) stopSrc.setData(stopsToGeoJSON({ ...route, stops: allStops }));
       const lineSrc = map.getSource(`route-${lineId}`) as mapboxgl.GeoJSONSource | undefined;
@@ -1879,12 +1706,9 @@ export function TransitMap() {
       map.getCanvas().style.cursor = "";
       didDragStopRef.current = true;
       snapshotHistory();
-      setRouteExtraStops((prev) => {
-        const next = new Map(prev);
-        const extraStops = next.get(lineId) ?? [];
-        next.set(lineId, extraStops.map((s) => s.name === name ? { ...s, coords } : s));
-        return next;
-      });
+      setRoutes((prev) =>
+        prev.map((r) => r.id === lineId ? { ...r, shape: undefined, stops: r.stops.map((s) => s.name === name ? { ...s, coords } : s) } : r)
+      );
     };
 
     const onEnter = () => { if (!dragging) map.getCanvas().style.cursor = "grab"; };
@@ -1933,7 +1757,7 @@ export function TransitMap() {
         const JSZip = (await import("jszip")).default;
         const { generateGTFS } = await import("~/lib/gtfs");
         const { validateGTFS } = await import("~/lib/gtfs-validate");
-        const files = generateGTFS([...ROUTES, ...customLines], routeExtraStops);
+        const files = generateGTFS(routes);
         const result = validateGTFS(files);
         const zip = new JSZip();
         for (const [name, content] of Object.entries(files)) {
@@ -1968,8 +1792,21 @@ export function TransitMap() {
     input.click();
   }
 
+  function removeCustomLineFromMap(routeId: string) {
+    const map = mapRef.current;
+    if (!map) return;
+    [`route-shadow-${routeId}`, `route-outline-${routeId}`, `route-line-${routeId}`, `stops-ring-${routeId}`, `stops-selected-${routeId}`, `stops-dot-${routeId}`].forEach((id) => {
+      if (map.getLayer(id)) map.removeLayer(id);
+    });
+    [`route-${routeId}`, `stops-${routeId}`].forEach((id) => {
+      if (map.getSource(id)) map.removeSource(id);
+    });
+  }
+
   function confirmImport(file: File) {
     setPendingImportFile(null);
+    // Remove all existing custom line layers/sources from the map before replacing state
+    for (const route of routes) removeCustomLineFromMap(route.id);
     if (file.name.endsWith(".zip")) {
       void (async () => {
         try {
@@ -1998,9 +1835,8 @@ export function TransitMap() {
             return;
           }
 
-          const routes = await importGTFS(zip);
-          setCustomLines(routes);
-          setRouteExtraStops(new Map());
+          const importedRoutes = await importGTFS(zip);
+          setRoutes(importedRoutes);
 
           // Show warnings (if any) after successful import
           if (validation.issues.length > 0) {
@@ -2017,10 +1853,9 @@ export function TransitMap() {
         try {
           const parsed = JSON.parse(e.target?.result as string) as {
             customLines?: Route[];
-            routeExtraStops?: Record<string, { name: string; coords: [number, number] }[]>;
+            routes?: Route[];
           };
-          setCustomLines(parsed.customLines ?? []);
-          setRouteExtraStops(new Map(Object.entries(parsed.routeExtraStops ?? {})));
+          setRoutes(parsed.routes ?? parsed.customLines ?? []);
         } catch {
           setImportError("Could not parse the JSON file. Make sure it was exported from this app.");
         }
@@ -2051,9 +1886,8 @@ export function TransitMap() {
 	              ]
 	            ).map(({ key, label, types }) => {
 	              const sectionRoutes = [
-	                ...ROUTES.filter((r) => types.includes(r.type)),
 	                ...BUS_ROUTES.filter((r) => types.includes(r.type)),
-	                ...customLines.filter((r) => types.includes(r.type)),
+	                ...routes.filter((r) => types.includes(r.type)),
 	              ];
 	              if (sectionRoutes.length === 0) return null;
 	              const allHidden = sectionRoutes.every((r) => hiddenRoutes.has(r.id));
@@ -2120,6 +1954,20 @@ export function TransitMap() {
 	                                onClick={() => setSelectedRoute(r)}
 	                              >{r.name}</button>
 	                              <button
+	                                title={isActive ? "Stop editing" : "Edit line"}
+	                                onClick={() => {
+	                                  if (!isActive) {
+	                                    handleSetDrawMode("normal");
+	                                    snapshotHistory();
+	                                    if (isHidden) setHiddenRoutes((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+	                                  }
+	                                  setAddStationToLine(isActive ? null : r.id);
+	                                }}
+	                                className={`p-0.5 transition-all ${isActive ? "opacity-100 text-stone-700" : "opacity-0 group-hover:opacity-100 text-stone-300 hover:text-stone-600"}`}
+	                              >
+	                                <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z"/></svg>
+	                              </button>
+	                              <button
 	                                title={isHidden ? "Show" : "Hide"}
 	                                onClick={() => setHiddenRoutes((prev) => { const next = new Set(prev); isHidden ? next.delete(r.id) : next.add(r.id); return next; })}
 	                                className="opacity-0 group-hover:opacity-100 p-0.5 text-stone-300 hover:text-stone-600 transition-all"
@@ -2151,10 +1999,12 @@ export function TransitMap() {
 	                </li>
 	              </div>
 	            )}
-
+	          </div>
+	          {/* sticky footer — always visible */}
+	          <div className="shrink-0 px-4 pb-4 pt-2 border-t border-stone-100">
 	            <button
 	              onClick={() => setShowNewLineModal(true)}
-	              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-stone-900 py-2 text-sm font-semibold text-white hover:bg-stone-700 transition-colors"
+	              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-stone-900 py-2 text-sm font-semibold text-white hover:bg-stone-700 transition-colors"
 	            >
 	              <span className="text-base leading-none">+</span>
 	              New Line
@@ -2391,12 +2241,10 @@ export function TransitMap() {
             route={selectedRoute}
             selectedStop={selectedStop}
             stationPopulations={stationPopulations}
-            extraStops={routeExtraStops.get(selectedRoute.id) ?? []}
-            isCustomLine={customLines.some((r) => r.id === selectedRoute.id)}
             onDeleteStop={(name) => handleDeleteStop(name, selectedRoute.id)}
             onDeleteLine={() => handleDeleteCustomLine(selectedRoute.id)}
-            onSnapToRoads={customLines.some((r) => r.id === selectedRoute.id)
-              ? () => handleSnapToRoads(selectedRoute, routeExtraStops.get(selectedRoute.id) ?? [])
+            onSnapToRoads={routes.some((r) => r.id === selectedRoute.id)
+              ? () => handleSnapToRoads(selectedRoute)
               : undefined}
             onClose={() => { setSelectedRoute(null); setSelectedStop(null); }}
           />
@@ -2484,16 +2332,13 @@ export function TransitMap() {
       {stationPopup && (
         <StationPopup
           popup={stationPopup}
-          allRoutes={[...ROUTES, ...customLines]}
+          allRoutes={routes}
           stationPopulations={stationPopulations}
-          isDeletable={
-            customLines.some((r) => r.id === stationPopup.routeId) ||
-            (routeExtraStops.get(stationPopup.routeId) ?? []).some((s) => s.name === stationPopup.name)
-          }
+          isDeletable={true}
           connectedRoutes={
-            [...ROUTES, ...customLines].filter((r) =>
+            routes.filter((r) =>
               r.id !== stationPopup.routeId &&
-              (routeExtraStops.get(r.id) ?? []).some((s) => s.name === stationPopup.name)
+              r.stops.some((s) => s.name === stationPopup.name)
             )
           }
           onRemoveTransfer={(targetRouteId) => {
@@ -2503,29 +2348,20 @@ export function TransitMap() {
           onDelete={() => { handleDeleteStop(stationPopup.name, stationPopup.routeId); setStationPopup(null); }}
           onAddTransfer={(targetRouteId) => {
             const { name, coords } = stationPopup;
-            // Add this station to the target line's extra stops (terminus-aware)
+            // Add this station to the target route's stops (terminus-aware)
             snapshotHistory();
-            setRouteExtraStops((prev) => {
-              const next = new Map(prev);
-              const route = [...ROUTES, ...customLinesRef.current].find((r) => r.id === targetRouteId);
-              const baseStops = route?.stops ?? [];
-              const extraStops = next.get(targetRouteId) ?? [];
+            setRoutes((prev) => prev.map((r) => {
+              if (r.id !== targetRouteId) return r;
               // Skip if already present
-              const alreadyExists = [...baseStops, ...extraStops].some((s) => s.name === name);
-              if (alreadyExists) return prev;
-              const allCurrent = extraStops.length > 0 ? extraStops : baseStops;
+              if (r.stops.some((s) => s.name === name)) return r;
               const newStop = { name, coords };
-              if (allCurrent.length === 0) {
-                next.set(targetRouteId, [newStop]);
-              } else {
-                const first = allCurrent[0]!;
-                const last = allCurrent[allCurrent.length - 1]!;
-                const dFirst = haversineKm(coords, first.coords);
-                const dLast  = haversineKm(coords, last.coords);
-                next.set(targetRouteId, dFirst < dLast ? [newStop, ...allCurrent] : [...allCurrent, newStop]);
-              }
-              return next;
-            });
+              if (r.stops.length === 0) return { ...r, stops: [newStop] };
+              const first = r.stops[0]!;
+              const last = r.stops[r.stops.length - 1]!;
+              const dFirst = haversineKm(coords, first.coords);
+              const dLast  = haversineKm(coords, last.coords);
+              return { ...r, stops: dFirst < dLast ? [newStop, ...r.stops] : [...r.stops, newStop] };
+            }));
             setStationPopup(null);
           }}
         />
@@ -2545,11 +2381,9 @@ export function TransitMap() {
           )
         }
         stationNames={[...selectedStations].map((s) => s.split("::")[0]!)}
-        existingLineStops={[...ROUTES, ...customLines].flatMap((r) => {
-          const extra = routeExtraStops.get(r.id) ?? [];
-          const stops = extra.length > 0 ? extra : r.stops;
-          return stops.map((s) => ({ name: s.name, coords: s.coords, route: r.name }));
-        })}
+        existingLineStops={routes.flatMap((r) =>
+          r.stops.map((s) => ({ name: s.name, coords: s.coords, route: r.name }))
+        )}
         routePanelOpen={generatedRoute !== null}
         onRoutePreview={(routes) => setCouncilPreview(routes)}
         onToolCall={(evt) => onToolCallRef.current(evt)}
@@ -2569,9 +2403,6 @@ export function TransitMap() {
           const approvalChance = Math.max(15, Math.min(92, 85 - prRaw * 1.5));
           const minutesSaved = Math.round(totalKm * (parsed.type === "subway" ? 3.5 : 2));
           const dollarsSaved = `$${(minutesSaved * 0.3).toFixed(1)}/trip`;
-          // Add as a custom line with stops: [] so all stops live in routeExtraStops.
-          // This ensures the terminus logic (prepend/append to extraStops) works correctly
-          // when the user clicks the map to add more stations.
           const newCustomLine: Route = {
             id,
             name: parsed.name,
@@ -2581,11 +2412,9 @@ export function TransitMap() {
             type: parsed.type,
             description: `${costStr} · ${buildYears}yr build · Approval ${Math.round(approvalChance)}% · PR ${prNorm}/10`,
             frequency: `−${minutesSaved}min commute`,
-            stops: [],
+            stops: parsed.stops,
           };
-          setCustomLines((prev) => [...prev, newCustomLine]);
-          // Seed extraStops with parsed stops so they render immediately
-          setRouteExtraStops((prev) => { const next = new Map(prev); next.set(id, parsed.stops); return next; });
+          setRoutes((prev) => [...prev, newCustomLine]);
           // Also set generatedRoute for the stats panel
           setGeneratedRoute({
             id,
@@ -2633,7 +2462,7 @@ export function TransitMap() {
             <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 10V2M5 5l3-3 3 3"/><rect x="2" y="11" width="12" height="3" rx="1" fill="none"/>
             </svg>
-            Export GTFS
+            Export
             {hasUnsaved && (
               <span className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" title="Unsaved changes" />
             )}
@@ -2684,7 +2513,7 @@ export function TransitMap() {
                 <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M8 10V2M5 5l3-3 3 3"/><rect x="2" y="11" width="12" height="3" rx="1" fill="none"/>
                 </svg>
-                Export GTFS
+                Export
                 {hasUnsaved && (
                   <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
                 )}
@@ -2703,40 +2532,6 @@ export function TransitMap() {
 
       </div>
 
-      {/* Export reminder modal — shown once on first unsaved change */}
-      {showExportReminder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-6 w-full max-w-md rounded-2xl border border-[#D7D7D7] bg-white p-8 shadow-2xl">
-            <div className="mb-4 flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100">
-                <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 text-amber-600" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 2v5M8 10v.5" strokeWidth="2"/><circle cx="8" cy="8" r="6.5"/>
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-stone-800">Export before you leave</p>
-                <p className="mt-1 text-sm leading-relaxed text-stone-500">
-                  Your custom lines and stop edits only exist in this browser tab. Export as GTFS to save your work — closing or refreshing the page will lose all changes.
-                </p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowExportReminder(false)}
-                className="rounded-xl border border-[#D7D7D7] px-5 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 transition-colors"
-              >
-                Dismiss
-              </button>
-              <button
-                onClick={() => { setShowExportReminder(false); handleExport(); }}
-                className="rounded-xl bg-stone-800 px-5 py-2 text-sm font-medium text-white hover:bg-stone-700 transition-colors"
-              >
-                Export now
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Import confirmation modal */}
       {pendingImportFile && (
@@ -2801,32 +2596,60 @@ export function TransitMap() {
       )}
 
       {/* GTFS Validation modal */}
-      {validationResult && (
+      {/* GTFS validation — success toast (near export button) */}
+      {validationResult?.result.valid && (
+        <div className="pointer-events-auto absolute top-20 right-6 z-50 w-72 rounded-xl border border-[#D7D7D7] bg-white p-4 shadow-lg">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-green-100">
+              <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 text-green-600" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="2.5,8.5 6,12 13.5,4" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-stone-800">
+                {validationResult.context === "export" ? "Exported" : "Imported"} successfully
+              </p>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-stone-500">
+                <span>{validationResult.result.stats.routes} routes</span>
+                <span>{validationResult.result.stats.trips} trips</span>
+                <span>{validationResult.result.stats.stops} stops</span>
+                {validationResult.result.stats.shapes > 0 && (
+                  <span>{validationResult.result.stats.shapes} shape pts</span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setValidationResult(null)}
+              className="ml-1 shrink-0 text-stone-400 hover:text-stone-700 transition-colors"
+              aria-label="Dismiss"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="4" y1="4" x2="12" y2="12" /><line x1="12" y1="4" x2="4" y2="12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* GTFS validation — error/warning full modal */}
+      {validationResult && !validationResult.result.valid && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="mx-6 w-full max-w-lg rounded-2xl border border-[#D7D7D7] bg-white p-8 shadow-2xl">
             <div className="mb-5 flex items-start gap-3">
-              {validationResult.result.valid ? (
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100">
-                  <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 text-green-600" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="2.5,8.5 6,12 13.5,4" />
-                  </svg>
-                </div>
-              ) : (
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100">
-                  <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 text-red-600" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="8" cy="8" r="6" />
-                    <line x1="8" y1="5" x2="8" y2="8.5" />
-                    <circle cx="8" cy="11" r="0.5" fill="currentColor" />
-                  </svg>
-                </div>
-              )}
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100">
+                <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 text-red-600" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="8" r="6" />
+                  <line x1="8" y1="5" x2="8" y2="8.5" />
+                  <circle cx="8" cy="11" r="0.5" fill="currentColor" />
+                </svg>
+              </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-stone-800">
+                <p className="text-base font-semibold text-stone-800">
                   GTFS Validation — {validationResult.context === "export" ? "Export" : "Import"}
-                  {validationResult.context === "import" && !validationResult.result.valid && " blocked"}
+                  {validationResult.context === "import" && " blocked"}
                 </p>
                 {/* Stats row */}
-                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-500">
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-500">
                   <span>{validationResult.result.stats.routes} routes</span>
                   <span>{validationResult.result.stats.trips} trips</span>
                   <span>{validationResult.result.stats.stops} stops</span>
@@ -2836,7 +2659,7 @@ export function TransitMap() {
                   )}
                 </div>
                 {/* Issue counts */}
-                <div className="mt-2 flex gap-3 text-xs">
+                <div className="mt-2 flex gap-3 text-sm">
                   {(() => {
                     const errors   = validationResult.result.issues.filter((i) => i.severity === "error").length;
                     const warnings = validationResult.result.issues.filter((i) => i.severity === "warning").length;
@@ -2844,7 +2667,6 @@ export function TransitMap() {
                       <>
                         {errors > 0   && <span className="font-medium text-red-600">{errors} error{errors !== 1 ? "s" : ""}</span>}
                         {warnings > 0 && <span className="font-medium text-amber-600">{warnings} warning{warnings !== 1 ? "s" : ""}</span>}
-                        {errors === 0 && warnings === 0 && <span className="font-medium text-green-600">No issues found</span>}
                       </>
                     );
                   })()}
@@ -2856,7 +2678,7 @@ export function TransitMap() {
             {validationResult.result.issues.length > 0 && (
               <ul className="mb-5 max-h-56 overflow-y-auto space-y-1.5 rounded-xl bg-stone-50 p-3">
                 {validationResult.result.issues.map((issue, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs">
+                  <li key={i} className="flex items-start gap-2 text-sm">
                     <span className={`mt-px shrink-0 font-mono font-semibold ${issue.severity === "error" ? "text-red-500" : "text-amber-500"}`}>
                       {issue.code}
                     </span>
@@ -2871,7 +2693,7 @@ export function TransitMap() {
                 onClick={() => setValidationResult(null)}
                 className="rounded-xl bg-stone-800 px-5 py-2 text-sm font-medium text-white hover:bg-stone-700 transition-colors"
               >
-                {validationResult.context === "import" && !validationResult.result.valid ? "Cancel import" : "Dismiss"}
+                {validationResult.context === "import" ? "Cancel import" : "Dismiss"}
               </button>
             </div>
           </div>
@@ -2896,7 +2718,7 @@ export function TransitMap() {
               frequency: "—",
               stops: [],
             };
-            setCustomLines((prev) => [...prev, newRoute]);
+            setRoutes((prev) => [...prev, newRoute]);
             handleSetDrawMode("normal");
             setAddStationToLine(id);
             setShowNewLineModal(false);

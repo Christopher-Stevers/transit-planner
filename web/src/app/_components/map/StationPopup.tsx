@@ -29,7 +29,7 @@ export function StationPopup({
   const connectedIds = new Set(connectedRoutes.map((r) => r.id));
   const transferableRoutes = allRoutes.filter((r) => r.id !== popup.routeId && !connectedIds.has(r.id));
   
-  // Get population served from the pre-computed stationPopulations (Voronoi method, 5km cutoff)
+  // Get population served from the pre-computed stationPopulations (Voronoi method, 1km cutoff for streetcar/bus, 5km for subway/LRT)
   const rawPopulationServed = stationPopulations.get(popup.name);
   const populationServed = rawPopulationServed !== undefined ? Math.max(2314, rawPopulationServed) : undefined;
   
@@ -156,7 +156,7 @@ export function StationPopup({
               <div className="flex items-center gap-2">
                 <span className="font-semibold">Population Served:</span>
                 {populationServed !== undefined ? (
-                  <span>{populationServed.toLocaleString()} people (nearest-station, 5km cutoff)</span>
+                  <span>{populationServed.toLocaleString()} people (nearest-station, {currentRoute?.type === "streetcar" || currentRoute?.type === "bus" ? "1" : "5"}km cutoff)</span>
                 ) : (
                   <span className="text-stone-400">Data unavailable</span>
                 )}

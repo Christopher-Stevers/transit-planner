@@ -25,14 +25,13 @@ export function haversineKm(
 
 /**
  * Voronoi + cutoff: assign each population point to its single nearest station.
- * Points farther than `maxKm` from every station are excluded.
+ * Points farther than the station's `maxKm` are excluded.
  *
  * @returns Map from station name → total population assigned to it
  */
 export function computeStationPopulations(
   rows: PopRow[],
-  stations: { name: string; coords: [number, number] }[],
-  maxKm: number,
+  stations: { name: string; coords: [number, number]; maxKm: number }[],
 ): Map<string, number> {
   const result = new Map<string, number>();
   for (const s of stations) result.set(s.name, 0);
@@ -40,16 +39,16 @@ export function computeStationPopulations(
   for (const row of rows) {
     const pt: [number, number] = [row.longitude, row.latitude];
     let bestDist = Infinity;
-    let bestStation: string | null = null;
+    let bestStation: { name: string; maxKm: number } | null = null;
     for (const s of stations) {
       const d = haversineKm(pt, s.coords);
       if (d < bestDist) {
         bestDist = d;
-        bestStation = s.name;
+        bestStation = s;
       }
     }
-    if (bestStation && bestDist <= maxKm) {
-      result.set(bestStation, (result.get(bestStation) ?? 0) + row.population);
+    if (bestStation && bestDist <= bestStation.maxKm) {
+      result.set(bestStation.name, (result.get(bestStation.name) ?? 0) + row.population);
     }
   }
   return result;

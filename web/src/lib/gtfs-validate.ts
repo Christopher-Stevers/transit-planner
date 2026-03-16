@@ -83,7 +83,7 @@ function getHeaders(text: string): Set<string> {
 
 // ─── validation helpers ───────────────────────────────────────────────────────
 
-const VALID_ROUTE_TYPES = new Set(["0","1","2","3","4","5","6","7","11","12"]);
+const VALID_ROUTE_TYPES = new Set(["0","1","2","3","4","5","6","7","11","12","900"]);
 const TIME_RE = /^\d{1,2}:\d{2}:\d{2}$/;
 
 /** Report at most this many individual instances per category to avoid flooding the UI. */

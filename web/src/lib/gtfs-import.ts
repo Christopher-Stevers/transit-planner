@@ -91,11 +91,12 @@ async function readFile(zip: ZipLike, name: string, required: boolean): Promise<
 
 function gtfsRouteType(routeType: string): Route["type"] {
   switch (routeType.trim()) {
-    case "0": return "streetcar"; // Tram / LRT / streetcar
-    case "1": return "subway";    // Metro / subway
-    case "2": return "subway";    // Commuter rail → treat as subway
-    case "3": return "bus";
-    default:  return "bus";
+    case "0":   return "lrt";       // Standard tram / LRT
+    case "1":   return "subway";    // Metro / subway
+    case "2":   return "subway";    // Commuter rail → treat as subway
+    case "3":   return "bus";
+    case "900": return "streetcar"; // GTFS extended: city tram / streetcar
+    default:    return "bus";
   }
 }
 
