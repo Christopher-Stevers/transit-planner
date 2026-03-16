@@ -7,7 +7,7 @@ import ReactMarkdown from "react-markdown";
 
 export type ParsedRoute = {
   name: string;
-  type: "subway" | "streetcar" | "bus";
+  type: "subway" | "lrt" | "streetcar" | "bus";
   color: string;
   stops: { name: string; coords: [number, number] }[];
   prScore?: number; // /40
@@ -648,7 +648,7 @@ export function ChatPanel({
   if (view === "history") {
     return (
       <div className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-2xl shadow-xl"
-        style={{ ...PANEL_STYLE, width: panelSize.width, height: panelSize.height, bottom: "22px", right: `calc(${rightOffset} + 30px)`, transition: "right 0.3s ease" }}>
+        style={{ ...PANEL_STYLE, width: panelSize.width, height: panelSize.height, maxHeight: "calc(100vh - 44px)", bottom: "22px", right: `calc(${rightOffset} + 30px)`, transition: "right 0.3s ease" }}>
         {resizeHandle}
         <div className="flex items-center gap-2 border-b border-stone-200/40 px-4 py-3">
           <button onClick={() => setView("live")} className="text-stone-400 hover:text-stone-700">
@@ -691,7 +691,7 @@ export function ChatPanel({
     if (!session) { setView("live"); return null; }
     return (
       <div className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-2xl shadow-xl"
-        style={{ ...PANEL_STYLE, width: panelSize.width, height: panelSize.height, bottom: "22px", right: `calc(${rightOffset} + 30px)`, transition: "right 0.3s ease" }}>
+        style={{ ...PANEL_STYLE, width: panelSize.width, height: panelSize.height, maxHeight: "calc(100vh - 44px)", bottom: "22px", right: `calc(${rightOffset} + 30px)`, transition: "right 0.3s ease" }}>
         {resizeHandle}
         <div className="flex items-center gap-2 border-b border-stone-200/40 px-4 py-3">
           <button onClick={() => setView("history")} className="text-stone-400 hover:text-stone-700">
@@ -726,7 +726,7 @@ export function ChatPanel({
   // ── Live view ─────────────────────────────────────────────────────────────────
   return (
     <div className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-2xl shadow-xl"
-      style={{ ...PANEL_STYLE, width: panelSize.width, height: panelSize.height, bottom: "22px", right: `calc(${rightOffset} + 30px)`, transition: "right 0.3s ease" }}>
+      style={{ ...PANEL_STYLE, width: panelSize.width, height: panelSize.height, maxHeight: "calc(100vh - 44px)", bottom: "22px", right: `calc(${rightOffset} + 30px)`, transition: "right 0.3s ease" }}>
       {resizeHandle}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-stone-200/40 px-4 py-3 shrink-0">

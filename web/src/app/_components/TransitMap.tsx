@@ -55,6 +55,9 @@ export function TransitMap() {
   const [addStationToLine, setAddStationToLine] = useState<string | null>(null);
   const [routeExtraStops, setRouteExtraStops] = useState<Map<string, { name: string; coords: [number, number] }[]>>(new Map());
   const [customLines, setCustomLines] = useState<Route[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
 
   // Voronoi: assign each population point to its nearest station (5 km cutoff)
   const stationPopulations = useMemo(() => {
@@ -86,6 +89,10 @@ export function TransitMap() {
   const redoStackRef = useRef<{ stops: Map<string, { name: string; coords: [number, number] }[]>; counter: number }[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+
+  // ── Lines panel: collapsible sections + per-route visibility
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [hiddenRoutes, setHiddenRoutes] = useState<Set<string>>(new Set());
 
   // Refs for use inside map event callbacks (avoid stale closure)
   const drawModeRef = useRef<DrawMode>("normal");
@@ -909,8 +916,13 @@ export function TransitMap() {
         firstLabelLayer,
       );
 
-      // Route lines + stops
-      ROUTES.forEach((route) => {
+      // Route lines + stops — streetcars added first so subways/LRTs render on top
+      const routesByZOrder = [
+        ...ROUTES.filter((r) => r.type === "streetcar"),
+        ...ROUTES.filter((r) => r.type !== "streetcar"),
+      ];
+      routesByZOrder.forEach((route) => {
+        const sc = route.type === "streetcar"; // deemphasized surface routes
         map.addSource(`route-${route.id}`, {
           type: "geojson",
           data: routeToGeoJSON(route),
@@ -928,9 +940,9 @@ export function TransitMap() {
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
             "line-color": route.color,
-            "line-width": 10,
-            "line-opacity": 0.12,
-            "line-blur": 4,
+            "line-width": sc ? 5 : 10,
+            "line-opacity": sc ? 0.08 : 0.12,
+            "line-blur": sc ? 3 : 4,
           },
         });
 
@@ -939,7 +951,7 @@ export function TransitMap() {
           type: "line",
           source: `route-${route.id}`,
           layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": route.color === "#FFCD00" ? "#E3A007" : route.color === "#00A650" ? "#005C2E" : route.color === "#B100CD" ? "#5B006B" : "#ffffff", "line-width": 11, "line-opacity": 0.9 },
+          paint: { "line-color": route.color === "#FFCD00" ? "#E3A007" : route.color === "#00A650" ? "#005C2E" : route.color === "#B100CD" ? "#5B006B" : "#ffffff", "line-width": sc ? 5 : 11, "line-opacity": sc ? 0.7 : 0.9 },
         });
 
         map.addLayer({
@@ -947,16 +959,16 @@ export function TransitMap() {
           type: "line",
           source: `route-${route.id}`,
           layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": route.color, "line-width": 7, "line-opacity": 1 },
+          paint: { "line-color": route.color, "line-width": sc ? 3 : 7, "line-opacity": sc ? 0.85 : 1 },
         });
 
         map.addLayer({
           id: `stops-ring-${route.id}`,
           type: "circle",
           source: `stops-${route.id}`,
-          minzoom: 11,
+          minzoom: sc ? 13 : 11,
           paint: {
-            "circle-radius": 6,
+            "circle-radius": sc ? 3.5 : 6,
             "circle-color": route.color,
             "circle-opacity": 0.25,
             "circle-stroke-width": 0,
@@ -970,10 +982,10 @@ export function TransitMap() {
           minzoom: 11,
           filter: ["==", ["get", "name"], "__none__"],
           paint: {
-            "circle-radius": 9,
+            "circle-radius": sc ? 5 : 9,
             "circle-color": route.color,
             "circle-opacity": 0.5,
-            "circle-stroke-width": 2,
+            "circle-stroke-width": sc ? 1.5 : 2,
             "circle-stroke-color": "#ffffff",
           },
         });
@@ -982,12 +994,12 @@ export function TransitMap() {
           id: `stops-dot-${route.id}`,
           type: "circle",
           source: `stops-${route.id}`,
-          minzoom: 11,
+          minzoom: sc ? 13 : 11,
           paint: {
-            "circle-radius": 3.5,
+            "circle-radius": sc ? 2 : 3.5,
             "circle-color": "#ffffff",
             "circle-stroke-color": route.color,
-            "circle-stroke-width": 2,
+            "circle-stroke-width": sc ? 1.5 : 2,
           },
         });
 
@@ -995,13 +1007,13 @@ export function TransitMap() {
 
         map.on("mouseenter", `route-line-${route.id}`, () => {
           map.getCanvas().style.cursor = "pointer";
-          map.setPaintProperty(`route-line-${route.id}`, "line-width", 10);
+          map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 5 : 10);
           setHoveredId(route.id);
         });
 
         map.on("mouseleave", `route-line-${route.id}`, () => {
           map.getCanvas().style.cursor = "";
-          map.setPaintProperty(`route-line-${route.id}`, "line-width", 7);
+          map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 3 : 7);
           setHoveredId(null);
         });
 
@@ -1215,6 +1227,18 @@ export function TransitMap() {
       console.log("[traffic] toggle attempted but layer missing", { showTraffic });
     }
   }, [showTraffic, mapLoaded, trafficGeoJSON]);
+
+  // ── per-route visibility toggle
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    for (const route of ROUTES) {
+      const vis = hiddenRoutes.has(route.id) ? "none" : "visible";
+      for (const layerId of [`route-shadow-${route.id}`, `route-outline-${route.id}`, `route-line-${route.id}`, `stops-ring-${route.id}`, `stops-selected-${route.id}`, `stops-dot-${route.id}`]) {
+        if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", vis);
+      }
+    }
+  }, [hiddenRoutes, mapLoaded]);
 
   // ── generated route layer (re-renders when route or stops change)
   useEffect(() => {
@@ -1551,15 +1575,16 @@ export function TransitMap() {
       const seededStops = [...route.stops, ...seededExtra];
       map.addSource(`route-${route.id}`, { type: "geojson", data: seededStops.length >= 2 ? routeToGeoJSON({ ...route, stops: seededStops, shape: undefined }) : routeToGeoJSON(route) });
       map.addSource(`stops-${route.id}`, { type: "geojson", data: stopsToGeoJSON({ ...route, stops: seededStops }) });
-      map.addLayer({ id: `route-shadow-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": 10, "line-opacity": 0.12, "line-blur": 4 } });
-      map.addLayer({ id: `route-outline-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": 11, "line-opacity": 0.9 } });
-      map.addLayer({ id: `route-line-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": 7, "line-opacity": 1 } });
-      map.addLayer({ id: `stops-ring-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 11, paint: { "circle-radius": 6, "circle-color": route.color, "circle-opacity": 0.25, "circle-stroke-width": 0 } });
-      map.addLayer({ id: `stops-selected-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 11, filter: ["==", ["get", "name"], "__none__"], paint: { "circle-radius": 9, "circle-color": route.color, "circle-opacity": 0.5, "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
-      map.addLayer({ id: `stops-dot-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 11, paint: { "circle-radius": 3.5, "circle-color": "#ffffff", "circle-stroke-color": route.color, "circle-stroke-width": 2 } });
+      const sc = route.type === "streetcar";
+      map.addLayer({ id: `route-shadow-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": sc ? 5 : 10, "line-opacity": sc ? 0.08 : 0.12, "line-blur": sc ? 3 : 4 } });
+      map.addLayer({ id: `route-outline-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": sc ? 5 : 11, "line-opacity": sc ? 0.7 : 0.9 } });
+      map.addLayer({ id: `route-line-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": sc ? 3 : 7, "line-opacity": sc ? 0.85 : 1 } });
+      map.addLayer({ id: `stops-ring-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: sc ? 13 : 11, paint: { "circle-radius": sc ? 3.5 : 6, "circle-color": route.color, "circle-opacity": 0.25, "circle-stroke-width": 0 } });
+      map.addLayer({ id: `stops-selected-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 11, filter: ["==", ["get", "name"], "__none__"], paint: { "circle-radius": sc ? 5 : 9, "circle-color": route.color, "circle-opacity": 0.5, "circle-stroke-width": sc ? 1.5 : 2, "circle-stroke-color": "#ffffff" } });
+      map.addLayer({ id: `stops-dot-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: sc ? 13 : 11, paint: { "circle-radius": sc ? 2 : 3.5, "circle-color": "#ffffff", "circle-stroke-color": route.color, "circle-stroke-width": sc ? 1.5 : 2 } });
       map.on("click", `route-line-${route.id}`, () => { setSelectedRoute(route); setSelectedStop(null); });
-      map.on("mouseenter", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = "pointer"; map.setPaintProperty(`route-line-${route.id}`, "line-width", 10); });
-      map.on("mouseleave", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = ""; map.setPaintProperty(`route-line-${route.id}`, "line-width", 7); });
+      map.on("mouseenter", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = "pointer"; map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 5 : 10); });
+      map.on("mouseleave", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = ""; map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 3 : 7); });
       map.on("click", `stops-dot-${route.id}`, (e) => {
         if (didDragStopRef.current) { didDragStopRef.current = false; return; }
         const name = e.features?.[0]?.properties?.name as string | undefined;
@@ -1680,66 +1705,194 @@ export function TransitMap() {
   const showGeneratedPanel = !!generatedRoute && !selectedRoute;
   const hasSelection = hasBoundary || selectedNeighbourhoods.size > 0 || selectedStations.size > 0;
 
+  function handleExport() {
+    void (async () => {
+      setExportProgress(0);
+      try {
+        const JSZip = (await import("jszip")).default;
+        const { generateGTFS } = await import("~/lib/gtfs");
+        const files = generateGTFS([...ROUTES, ...customLines], routeExtraStops);
+        const zip = new JSZip();
+        for (const [name, content] of Object.entries(files)) {
+          zip.file(name, content);
+        }
+        const blob = await zip.generateAsync(
+          { type: "blob", compression: "DEFLATE" },
+          ({ percent }) => setExportProgress(Math.round(percent)),
+        );
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "transit-plan-gtfs.zip";
+        a.click();
+        URL.revokeObjectURL(url);
+      } finally {
+        setExportProgress(null);
+      }
+    })();
+  }
+
+  function handleImport() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".zip,.json,application/zip,application/json";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setPendingImportFile(file);
+    };
+    input.click();
+  }
+
+  function confirmImport(file: File) {
+    setPendingImportFile(null);
+    if (file.name.endsWith(".zip")) {
+      void (async () => {
+        try {
+          const JSZip = (await import("jszip")).default;
+          const { importGTFS } = await import("~/lib/gtfs-import");
+          const zip = await JSZip.loadAsync(file).catch(() => {
+            throw new Error("Could not read ZIP file. Make sure the file is a valid .zip archive.");
+          });
+          const routes = await importGTFS(zip);
+          setCustomLines(routes);
+          setRouteExtraStops(new Map());
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown error while importing GTFS.";
+          setImportError(msg);
+        }
+      })();
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const parsed = JSON.parse(e.target?.result as string) as {
+            customLines?: Route[];
+            routeExtraStops?: Record<string, { name: string; coords: [number, number] }[]>;
+          };
+          setCustomLines(parsed.customLines ?? []);
+          setRouteExtraStops(new Map(Object.entries(parsed.routeExtraStops ?? {})));
+        } catch {
+          setImportError("Could not parse the JSON file. Make sure it was exported from this app.");
+        }
+      };
+      reader.readAsText(file);
+    }
+  }
+
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
 
       {/* TTC Lines legend + neighbourhood panel — top left */}
-      <div className="absolute top-6 left-6 flex flex-col gap-4 pointer-events-auto">
-        <div className="rounded-xl border border-[#D7D7D7] bg-white px-5 py-4 shadow-sm w-64">
-          <div className="mb-3">
+      <div className="absolute top-6 left-6 flex flex-col gap-4 pointer-events-auto" style={{ maxHeight: "calc(100vh - 48px)", overflowY: "auto" }}>
+        <div className="rounded-xl border border-[#D7D7D7] bg-white px-4 py-4 shadow-sm w-64">
+          <div className="mb-2">
             <p className="text-lg font-bold text-stone-800">Lines</p>
           </div>
-          <ul className="space-y-1">
-            {[...ROUTES, ...customLines].map((r) => {
-              const isActive = addStationToLine === r.id;
-              return (
-                <li key={r.id} className="group flex items-center gap-2">
+
+          {/* ── Lines sections: grouped by type, custom lines merged in */}
+          {(
+            [
+              { key: "subway",    label: "Subway / LRT", types: ["subway", "lrt"] as Route["type"][] },
+              { key: "streetcar", label: "Streetcars",   types: ["streetcar"] as Route["type"][] },
+              { key: "bus",       label: "Bus",          types: ["bus"] as Route["type"][] },
+            ]
+          ).map(({ key, label, types }) => {
+            const sectionRoutes = [
+              ...ROUTES.filter((r) => types.includes(r.type)),
+              ...customLines.filter((r) => types.includes(r.type)),
+            ];
+            if (sectionRoutes.length === 0) return null;
+            const allHidden = sectionRoutes.every((r) => hiddenRoutes.has(r.id));
+            const collapsed = collapsedSections[key] ?? false;
+            return (
+              <div key={key} className="mb-2">
+                <div className="flex items-center gap-1 mb-1">
                   <button
-                    title={isActive ? "Deselect line" : "Select to add stations"}
-                    onClick={() => {
-                      if (!isActive) {
-                        handleSetDrawMode("normal");
-                        snapshotHistory(); // ensure undo point exists before first station
-                      }
-                      setAddStationToLine(isActive ? null : r.id);
-                    }}
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all ${
-                      isActive
-                        ? "ring-2 ring-offset-1"
-                        : "opacity-60 hover:opacity-100"
-                    }`}
-                    style={isActive ? { outline: `2px solid ${r.color}`, outlineOffset: "2px" } : {}}
+                    onClick={() => setCollapsedSections((prev) => ({ ...prev, [key]: !collapsed }))}
+                    className="flex items-center gap-1 flex-1 text-left"
                   >
-                    <span
-                      className="h-2.5 w-5 rounded-full"
-                      style={{ background: r.color }}
-                    />
+                    <svg viewBox="0 0 10 10" fill="currentColor" className={`h-2.5 w-2.5 text-stone-400 transition-transform shrink-0 ${collapsed ? "-rotate-90" : ""}`}>
+                      <path d="M2 3l3 4 3-4H2z"/>
+                    </svg>
+                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">{label}</span>
                   </button>
                   <button
-                    className={`flex-1 truncate text-left text-sm transition-colors ${
-                      isActive ? "font-semibold text-stone-900" : "text-stone-600 hover:text-stone-900"
-                    }`}
-                    onClick={() => setSelectedRoute(r)}
+                    title={allHidden ? "Show all" : "Hide all"}
+                    onClick={() => setHiddenRoutes((prev) => {
+                      const next = new Set(prev);
+                      if (allHidden) sectionRoutes.forEach((r) => next.delete(r.id));
+                      else sectionRoutes.forEach((r) => next.add(r.id));
+                      return next;
+                    })}
+                    className="p-0.5 text-stone-400 hover:text-stone-700 transition-colors"
                   >
-                    {r.name}
+                    {allHidden ? (
+                      <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 2l12 12M6.5 6.6A3 3 0 0 0 9.4 9.5"/><path d="M4.2 4.3C2.9 5.2 1.8 6.5 1 8c1.5 3 4 5 7 5a8 8 0 0 0 3.5-.8M6 2.3A8 8 0 0 1 8 2c3 0 5.5 2 7 5-0.5 1-1.2 2-2 2.7"/>
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 8c1.5-3 4-5 7-5s5.5 2 7 5c-1.5 3-4 5-7 5S2.5 11 1 8z"/><circle cx="8" cy="8" r="2.5"/>
+                      </svg>
+                    )}
                   </button>
-                </li>
-              );
-            })}
-            {generatedRoute && (
+                </div>
+                {!collapsed && (
+                  <ul className="space-y-0.5 pl-4">
+                    {sectionRoutes.map((r) => {
+                      const isActive = addStationToLine === r.id;
+                      const isHidden = hiddenRoutes.has(r.id);
+                      return (
+                        <li key={r.id} className="group flex items-center gap-2">
+                          <button
+                            title={isActive ? "Deselect line" : "Select to add stations"}
+                            onClick={() => {
+                              if (!isActive) { handleSetDrawMode("normal"); snapshotHistory(); }
+                              setAddStationToLine(isActive ? null : r.id);
+                            }}
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all ${isActive ? "ring-2 ring-offset-1" : isHidden ? "opacity-30" : "opacity-60 hover:opacity-100"}`}
+                            style={isActive ? { outline: `2px solid ${r.color}`, outlineOffset: "2px" } : {}}
+                          >
+                            <span className="h-2 w-4 rounded-full" style={{ background: r.color }} />
+                          </button>
+                          <button
+                            className={`flex-1 truncate text-left text-sm transition-colors ${isActive ? "font-semibold text-stone-900" : isHidden ? "text-stone-300" : "text-stone-600 hover:text-stone-900"}`}
+                            onClick={() => setSelectedRoute(r)}
+                          >{r.name}</button>
+                          <button
+                            title={isHidden ? "Show" : "Hide"}
+                            onClick={() => setHiddenRoutes((prev) => { const next = new Set(prev); isHidden ? next.delete(r.id) : next.add(r.id); return next; })}
+                            className="opacity-0 group-hover:opacity-100 p-0.5 text-stone-300 hover:text-stone-600 transition-all"
+                          >
+                            {isHidden ? (
+                              <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 1l10 10M5 5.2A2 2 0 0 0 6.8 7M3.2 3.3C2.2 4 1.4 4.9 1 6c1 2 3 3.5 5 3.5a6 6 0 0 0 2.4-.5M4.5 1.7A6 6 0 0 1 6 1.5c2 0 4 1.5 5 3.5-.4.8-.9 1.4-1.5 2"/></svg>
+                            ) : (
+                              <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 6c1-2 3-3.5 5-3.5S10 4 11 6c-1 2-3 3.5-5 3.5S2 8 1 6z"/><circle cx="6" cy="6" r="1.8"/></svg>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+
+          {generatedRoute && (
+            <div className="mt-1 border-t border-stone-100 pt-2">
               <li
-                className="flex cursor-pointer items-center gap-2 text-sm text-stone-600 hover:text-stone-900"
+                className="flex cursor-pointer items-center gap-2 text-sm text-stone-600 hover:text-stone-900 list-none"
                 onClick={() => setSelectedRoute(null)}
               >
-                <span
-                  className="h-2.5 w-5 shrink-0 rounded-full"
-                  style={{ background: generatedRoute.color }}
-                />
+                <span className="h-2 w-4 shrink-0 rounded-full" style={{ background: generatedRoute.color }} />
                 <span className="truncate">{generatedRoute.name}</span>
               </li>
-            )}
-          </ul>
+            </div>
+          )}
+
           <button
             onClick={() => setShowNewLineModal(true)}
             className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-stone-900 py-2 text-sm font-semibold text-white hover:bg-stone-700 transition-colors"
@@ -1968,9 +2121,10 @@ export function TransitMap() {
 
       {/* Side panel — only one shown at a time to prevent overlap */}
       <div
-        className={`pointer-events-none absolute right-6 bottom-6 top-6 flex items-stretch transition-all duration-300 ease-in-out ${
+        className={`pointer-events-none absolute right-6 bottom-6 flex items-stretch transition-all duration-300 ease-in-out ${
           selectedRoute || showGeneratedPanel ? "translate-x-0" : "translate-x-[calc(100%+2.25rem)]"
         }`}
+        style={{ top: "72px" }}
       >
         {selectedRoute ? (
           <RoutePanel
@@ -2143,10 +2297,10 @@ export function TransitMap() {
           for (let i = 1; i < stops.length; i++) {
             totalKm += haversineKm(stops[i - 1]!.coords, stops[i]!.coords);
           }
-          const costPerKm = parsed.type === "subway" ? 500 : parsed.type === "streetcar" ? 80 : 4;
+          const costPerKm = parsed.type === "subway" ? 500 : (parsed.type === "streetcar" || parsed.type === "lrt") ? 80 : 4;
           const costM = Math.round(totalKm * costPerKm);
           const costStr = costM >= 1000 ? `$${(costM / 1000).toFixed(1)}B` : `$${costM}M`;
-          const buildYears = parsed.type === "subway" ? Math.ceil(totalKm * 1.2 + 3) : parsed.type === "streetcar" ? Math.ceil(totalKm * 0.6 + 2) : Math.ceil(totalKm * 0.1 + 1);
+          const buildYears = parsed.type === "subway" ? Math.ceil(totalKm * 1.2 + 3) : (parsed.type === "streetcar" || parsed.type === "lrt") ? Math.ceil(totalKm * 0.6 + 2) : Math.ceil(totalKm * 0.1 + 1);
           const prRaw = parsed.prScore ?? 20;
           const prNorm = Math.round((prRaw / 40) * 10);
           const approvalChance = Math.max(15, Math.min(92, 85 - prRaw * 1.5));
@@ -2194,10 +2348,100 @@ export function TransitMap() {
         }}
       />
 
-      {/* User auth button — top right (temporarily hidden) */}
-      {/* <div className="pointer-events-none absolute top-6 right-6 flex items-center z-10">
-        <UserButton />
-      </div> */}
+      {/* Import / Export — top right */}
+      <div className="pointer-events-none absolute top-6 right-6 flex items-center gap-2 z-10">
+        <button
+          onClick={handleImport}
+          className="pointer-events-auto flex h-10 items-center gap-2 rounded-xl border border-[#D7D7D7] bg-white px-4 text-sm font-normal text-stone-500 shadow-sm hover:text-stone-800 transition-colors"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 2v8M5 7l3 3 3-3"/><rect x="2" y="11" width="12" height="3" rx="1" fill="none"/>
+          </svg>
+          Import
+        </button>
+        <div className="pointer-events-auto flex flex-col gap-1.5">
+          <button
+            onClick={handleExport}
+            disabled={exportProgress !== null}
+            className="flex h-10 items-center gap-2 rounded-xl border border-[#D7D7D7] bg-white px-4 text-sm font-normal text-stone-500 shadow-sm hover:text-stone-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 10V2M5 5l3-3 3 3"/><rect x="2" y="11" width="12" height="3" rx="1" fill="none"/>
+            </svg>
+            Export GTFS
+          </button>
+          {exportProgress !== null && (
+            <div className="h-1 w-full overflow-hidden rounded-full bg-stone-200">
+              <div
+                className="h-full rounded-full bg-stone-700 transition-all duration-150"
+                style={{ width: `${exportProgress}%` }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Import confirmation modal */}
+      {pendingImportFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-6 w-full max-w-md rounded-2xl border border-[#D7D7D7] bg-white p-8 shadow-2xl">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                <svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-amber-600">
+                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-stone-800">Replace current data?</p>
+                <p className="mt-1 text-sm leading-relaxed text-stone-500">
+                  Importing <span className="font-medium text-stone-700">{pendingImportFile.name}</span> will remove all custom lines and stop edits. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPendingImportFile(null)}
+                className="rounded-xl border border-[#D7D7D7] px-5 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmImport(pendingImportFile)}
+                className="rounded-xl bg-stone-800 px-5 py-2 text-sm font-medium text-white hover:bg-stone-700 transition-colors"
+              >
+                Replace & import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import error modal */}
+      {importError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-6 w-full max-w-md rounded-2xl border border-[#D7D7D7] bg-white p-8 shadow-2xl">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100">
+                <svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-red-600">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-10.5a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm.75 7a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-stone-800">Import failed</p>
+                <p className="mt-1 text-sm leading-relaxed text-stone-500">{importError}</p>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setImportError(null)}
+                className="rounded-xl bg-stone-800 px-5 py-2 text-sm font-medium text-white hover:bg-stone-700 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New line modal */}
       {showNewLineModal && (
