@@ -910,12 +910,13 @@ export function TransitMap() {
           id: "population-points",
           type: "circle",
           source: "population",
+          minzoom: 12,
           paint: {
             "circle-radius": [
               "interpolate", ["linear"], ["zoom"],
-              11, 2,
-              13, 4,
-              16, 8,
+              15, 2,
+              17, 4,
+              19, 8,
             ],
             "circle-color": [
               "interpolate", ["linear"], ["get", "weight"],
@@ -926,7 +927,7 @@ export function TransitMap() {
               0.85, "rgb(253,141,60)",
               1,    "rgb(215,25,28)",
             ],
-            "circle-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0, 16, 0.75],
+            "circle-opacity": ["interpolate", ["linear"], ["zoom"], 15, 0, 17, 0.75],
             "circle-stroke-width": 0.5,
             "circle-stroke-color": "rgba(255,255,255,0.5)",
           },
