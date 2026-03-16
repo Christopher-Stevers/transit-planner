@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { Route } from "~/app/map/mock-data";
+import { TimetableView } from "./TimetableView";
 
 export function RoutePanel({
   route,
@@ -21,6 +23,7 @@ export function RoutePanel({
   onDeleteLine?: () => void;
   onClose: () => void;
 }) {
+  const [timetableOpen, setTimetableOpen] = useState(false);
   const rawPop = selectedStop ? stationPopulations.get(selectedStop) : undefined;
   const popServed = rawPop !== undefined ? Math.max(2314, rawPop) : undefined;
   const allStops = [...route.stops, ...extraStops];
@@ -63,6 +66,29 @@ export function RoutePanel({
         <p className="mt-2 text-xs font-medium text-stone-400">
           Frequency: <span className="text-stone-600">{route.frequency}</span>
         </p>
+      </div>
+
+      {/* Timetable — collapsible */}
+      <div className="mx-5 mt-4 rounded-xl border border-stone-100">
+        <button
+          onClick={() => setTimetableOpen((o) => !o)}
+          className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold text-stone-500 hover:text-stone-800 transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="6" cy="6" r="5" /><path d="M6 3v3l2 1.5" />
+            </svg>
+            Timetable
+          </span>
+          <svg viewBox="0 0 12 12" fill="none" className={`h-3 w-3 transition-transform ${timetableOpen ? "rotate-180" : ""}`} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 4l4 4 4-4" />
+          </svg>
+        </button>
+        {timetableOpen && (
+          <div className="border-t border-stone-100 p-3">
+            <TimetableView route={route} extraStops={extraStops} />
+          </div>
+        )}
       </div>
 
       {isCustomLine && onDeleteLine && (

@@ -11303,3 +11303,6 @@ export const GENERATED_ROUTES: GeneratedRoute[] = [
     ],
   },
 ];
+
+// Bus routes were added to GENERATED_ROUTES but should be treated as regular routes
+export const BUS_ROUTES: Route[] = GENERATED_ROUTES.filter((r): r is GeneratedRoute & Route => r.type === "bus");

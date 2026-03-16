@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { haversineKm, computeStationPopulations, type PopRow } from "~/app/map/geo-utils";
 import {
   ROUTES,
+  BUS_ROUTES,
   type GeneratedRoute,
   type Route,
 } from "~/app/map/mock-data";
@@ -58,6 +59,10 @@ export function TransitMap() {
   const [importError, setImportError] = useState<string | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [exportProgress, setExportProgress] = useState<number | null>(null);
+  const [validationResult, setValidationResult] = useState<{
+    result: import("~/lib/gtfs-validate").ValidationResult;
+    context: "export" | "import";
+  } | null>(null);
 
   // Voronoi: assign each population point to its nearest station (5 km cutoff)
   const stationPopulations = useMemo(() => {
@@ -90,9 +95,12 @@ export function TransitMap() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
-  // ── Lines panel: collapsible sections + per-route visibility
+  // ── Lines panel: collapsible sections + per-route visibility + timetable expand
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
-  const [hiddenRoutes, setHiddenRoutes] = useState<Set<string>>(new Set());
+  const [hiddenRoutes, setHiddenRoutes] = useState<Set<string>>(
+    new Set(BUS_ROUTES.map((r) => r.id)),
+  );
+
 
   // Refs for use inside map event callbacks (avoid stale closure)
   const drawModeRef = useRef<DrawMode>("normal");
@@ -916,13 +924,15 @@ export function TransitMap() {
         firstLabelLayer,
       );
 
-      // Route lines + stops — streetcars added first so subways/LRTs render on top
+      // Route lines + stops — buses first, then streetcars, then subways/LRTs on top
       const routesByZOrder = [
+        ...BUS_ROUTES,
         ...ROUTES.filter((r) => r.type === "streetcar"),
-        ...ROUTES.filter((r) => r.type !== "streetcar"),
+        ...ROUTES.filter((r) => r.type !== "bus" && r.type !== "streetcar"),
       ];
       routesByZOrder.forEach((route) => {
-        const sc = route.type === "streetcar"; // deemphasized surface routes
+        const sc = route.type === "streetcar";
+        const bus = route.type === "bus";
         map.addSource(`route-${route.id}`, {
           type: "geojson",
           data: routeToGeoJSON(route),
@@ -940,9 +950,9 @@ export function TransitMap() {
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
             "line-color": route.color,
-            "line-width": sc ? 5 : 10,
-            "line-opacity": sc ? 0.08 : 0.12,
-            "line-blur": sc ? 3 : 4,
+            "line-width": bus ? 2 : sc ? 5 : 10,
+            "line-opacity": bus ? 0.05 : sc ? 0.08 : 0.12,
+            "line-blur": bus ? 2 : sc ? 3 : 4,
           },
         });
 
@@ -951,7 +961,7 @@ export function TransitMap() {
           type: "line",
           source: `route-${route.id}`,
           layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": route.color === "#FFCD00" ? "#E3A007" : route.color === "#00A650" ? "#005C2E" : route.color === "#B100CD" ? "#5B006B" : "#ffffff", "line-width": sc ? 5 : 11, "line-opacity": sc ? 0.7 : 0.9 },
+          paint: { "line-color": route.color === "#FFCD00" ? "#E3A007" : route.color === "#00A650" ? "#005C2E" : route.color === "#B100CD" ? "#5B006B" : "#ffffff", "line-width": bus ? 2 : sc ? 5 : 11, "line-opacity": bus ? 0.5 : sc ? 0.7 : 0.9 },
         });
 
         map.addLayer({
@@ -959,16 +969,16 @@ export function TransitMap() {
           type: "line",
           source: `route-${route.id}`,
           layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": route.color, "line-width": sc ? 3 : 7, "line-opacity": sc ? 0.85 : 1 },
+          paint: { "line-color": route.color, "line-width": bus ? 1.5 : sc ? 3 : 7, "line-opacity": bus ? 0.7 : sc ? 0.85 : 1 },
         });
 
         map.addLayer({
           id: `stops-ring-${route.id}`,
           type: "circle",
           source: `stops-${route.id}`,
-          minzoom: sc ? 13 : 11,
+          minzoom: bus ? 15 : sc ? 13 : 11,
           paint: {
-            "circle-radius": sc ? 3.5 : 6,
+            "circle-radius": bus ? 2 : sc ? 3.5 : 6,
             "circle-color": route.color,
             "circle-opacity": 0.25,
             "circle-stroke-width": 0,
@@ -982,10 +992,10 @@ export function TransitMap() {
           minzoom: 11,
           filter: ["==", ["get", "name"], "__none__"],
           paint: {
-            "circle-radius": sc ? 5 : 9,
+            "circle-radius": bus ? 3.5 : sc ? 5 : 9,
             "circle-color": route.color,
             "circle-opacity": 0.5,
-            "circle-stroke-width": sc ? 1.5 : 2,
+            "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2,
             "circle-stroke-color": "#ffffff",
           },
         });
@@ -994,12 +1004,12 @@ export function TransitMap() {
           id: `stops-dot-${route.id}`,
           type: "circle",
           source: `stops-${route.id}`,
-          minzoom: sc ? 13 : 11,
+          minzoom: bus ? 15 : sc ? 13 : 11,
           paint: {
-            "circle-radius": sc ? 2 : 3.5,
+            "circle-radius": bus ? 1.5 : sc ? 2 : 3.5,
             "circle-color": "#ffffff",
             "circle-stroke-color": route.color,
-            "circle-stroke-width": sc ? 1.5 : 2,
+            "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2,
           },
         });
 
@@ -1007,13 +1017,13 @@ export function TransitMap() {
 
         map.on("mouseenter", `route-line-${route.id}`, () => {
           map.getCanvas().style.cursor = "pointer";
-          map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 5 : 10);
+          map.setPaintProperty(`route-line-${route.id}`, "line-width", bus ? 3 : sc ? 5 : 10);
           setHoveredId(route.id);
         });
 
         map.on("mouseleave", `route-line-${route.id}`, () => {
           map.getCanvas().style.cursor = "";
-          map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 3 : 7);
+          map.setPaintProperty(`route-line-${route.id}`, "line-width", bus ? 1.5 : sc ? 3 : 7);
           setHoveredId(null);
         });
 
@@ -1232,7 +1242,7 @@ export function TransitMap() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
-    for (const route of ROUTES) {
+    for (const route of [...ROUTES, ...BUS_ROUTES]) {
       const vis = hiddenRoutes.has(route.id) ? "none" : "visible";
       for (const layerId of [`route-shadow-${route.id}`, `route-outline-${route.id}`, `route-line-${route.id}`, `stops-ring-${route.id}`, `stops-selected-${route.id}`, `stops-dot-${route.id}`]) {
         if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", vis);
@@ -1565,29 +1575,30 @@ export function TransitMap() {
   }, [councilOpen]);
 
   // ── add map layers for newly created custom lines
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded) return;
-    customLines.forEach((route) => {
+	  useEffect(() => {
+	    const map = mapRef.current;
+	    if (!map || !mapLoaded) return;
+	    customLines.forEach((route) => {
       if (map.getSource(`route-${route.id}`)) return; // already added
       // Seed with any extra stops already set (e.g. from AI route generation)
       const seededExtra = routeExtraStopsRef.current.get(route.id) ?? [];
       const seededStops = [...route.stops, ...seededExtra];
       map.addSource(`route-${route.id}`, { type: "geojson", data: seededStops.length >= 2 ? routeToGeoJSON({ ...route, stops: seededStops, shape: undefined }) : routeToGeoJSON(route) });
       map.addSource(`stops-${route.id}`, { type: "geojson", data: stopsToGeoJSON({ ...route, stops: seededStops }) });
-      const sc = route.type === "streetcar";
-      map.addLayer({ id: `route-shadow-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": sc ? 5 : 10, "line-opacity": sc ? 0.08 : 0.12, "line-blur": sc ? 3 : 4 } });
-      map.addLayer({ id: `route-outline-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": sc ? 5 : 11, "line-opacity": sc ? 0.7 : 0.9 } });
-      map.addLayer({ id: `route-line-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": sc ? 3 : 7, "line-opacity": sc ? 0.85 : 1 } });
-      map.addLayer({ id: `stops-ring-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: sc ? 13 : 11, paint: { "circle-radius": sc ? 3.5 : 6, "circle-color": route.color, "circle-opacity": 0.25, "circle-stroke-width": 0 } });
-      map.addLayer({ id: `stops-selected-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 11, filter: ["==", ["get", "name"], "__none__"], paint: { "circle-radius": sc ? 5 : 9, "circle-color": route.color, "circle-opacity": 0.5, "circle-stroke-width": sc ? 1.5 : 2, "circle-stroke-color": "#ffffff" } });
-      map.addLayer({ id: `stops-dot-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: sc ? 13 : 11, paint: { "circle-radius": sc ? 2 : 3.5, "circle-color": "#ffffff", "circle-stroke-color": route.color, "circle-stroke-width": sc ? 1.5 : 2 } });
-      map.on("click", `route-line-${route.id}`, () => { setSelectedRoute(route); setSelectedStop(null); });
-      map.on("mouseenter", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = "pointer"; map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 5 : 10); });
-      map.on("mouseleave", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = ""; map.setPaintProperty(`route-line-${route.id}`, "line-width", sc ? 3 : 7); });
-      map.on("click", `stops-dot-${route.id}`, (e) => {
-        if (didDragStopRef.current) { didDragStopRef.current = false; return; }
-        const name = e.features?.[0]?.properties?.name as string | undefined;
+	      const sc = route.type === "streetcar";
+	      const bus = route.type === "bus";
+	      map.addLayer({ id: `route-shadow-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": bus ? 2 : sc ? 5 : 10, "line-opacity": bus ? 0.05 : sc ? 0.08 : 0.12, "line-blur": bus ? 2 : sc ? 3 : 4 } });
+	      map.addLayer({ id: `route-outline-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": bus ? 2 : sc ? 5 : 11, "line-opacity": bus ? 0.5 : sc ? 0.7 : 0.9 } });
+	      map.addLayer({ id: `route-line-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": bus ? 1.5 : sc ? 3 : 7, "line-opacity": bus ? 0.7 : sc ? 0.85 : 1 } });
+	      map.addLayer({ id: `stops-ring-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: bus ? 15 : sc ? 13 : 11, paint: { "circle-radius": bus ? 2 : sc ? 3.5 : 6, "circle-color": route.color, "circle-opacity": 0.25, "circle-stroke-width": 0 } });
+	      map.addLayer({ id: `stops-selected-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 11, filter: ["==", ["get", "name"], "__none__"], paint: { "circle-radius": bus ? 3.5 : sc ? 5 : 9, "circle-color": route.color, "circle-opacity": 0.5, "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2, "circle-stroke-color": "#ffffff" } });
+	      map.addLayer({ id: `stops-dot-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: bus ? 15 : sc ? 13 : 11, paint: { "circle-radius": bus ? 1.5 : sc ? 2 : 3.5, "circle-color": "#ffffff", "circle-stroke-color": route.color, "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2 } });
+	      map.on("click", `route-line-${route.id}`, () => { setSelectedRoute(route); setSelectedStop(null); });
+	      map.on("mouseenter", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = "pointer"; map.setPaintProperty(`route-line-${route.id}`, "line-width", bus ? 3 : sc ? 5 : 10); });
+	      map.on("mouseleave", `route-line-${route.id}`, () => { map.getCanvas().style.cursor = ""; map.setPaintProperty(`route-line-${route.id}`, "line-width", bus ? 1.5 : sc ? 3 : 7); });
+	      map.on("click", `stops-dot-${route.id}`, (e) => {
+	        if (didDragStopRef.current) { didDragStopRef.current = false; return; }
+	        const name = e.features?.[0]?.properties?.name as string | undefined;
         if (!name) return;
         e.originalEvent.stopPropagation();
         if (drawModeRef.current === "select") {
@@ -1711,7 +1722,9 @@ export function TransitMap() {
       try {
         const JSZip = (await import("jszip")).default;
         const { generateGTFS } = await import("~/lib/gtfs");
+        const { validateGTFS } = await import("~/lib/gtfs-validate");
         const files = generateGTFS([...ROUTES, ...customLines], routeExtraStops);
+        const result = validateGTFS(files);
         const zip = new JSZip();
         for (const [name, content] of Object.entries(files)) {
           zip.file(name, content);
@@ -1726,6 +1739,7 @@ export function TransitMap() {
         a.download = "transit-plan-gtfs.zip";
         a.click();
         URL.revokeObjectURL(url);
+        setValidationResult({ result, context: "export" });
       } finally {
         setExportProgress(null);
       }
@@ -1751,12 +1765,37 @@ export function TransitMap() {
         try {
           const JSZip = (await import("jszip")).default;
           const { importGTFS } = await import("~/lib/gtfs-import");
+          const { validateGTFS } = await import("~/lib/gtfs-validate");
           const zip = await JSZip.loadAsync(file).catch(() => {
             throw new Error("Could not read ZIP file. Make sure the file is a valid .zip archive.");
           });
+
+          // Extract raw file strings for validation
+          const gtfsFileNames = [
+            "agency.txt", "routes.txt", "trips.txt", "stop_times.txt",
+            "stops.txt", "shapes.txt", "calendar.txt", "calendar_dates.txt",
+          ];
+          const gtfsFiles: Record<string, string> = {};
+          for (const name of gtfsFileNames) {
+            const entry = zip.file(name);
+            if (entry) gtfsFiles[name] = await entry.async("string");
+          }
+          const validation = validateGTFS(gtfsFiles);
+
+          if (!validation.valid) {
+            // Block import, show validation errors
+            setValidationResult({ result: validation, context: "import" });
+            return;
+          }
+
           const routes = await importGTFS(zip);
           setCustomLines(routes);
           setRouteExtraStops(new Map());
+
+          // Show warnings (if any) after successful import
+          if (validation.issues.length > 0) {
+            setValidationResult({ result: validation, context: "import" });
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Unknown error while importing GTFS.";
           setImportError(msg);
@@ -1782,125 +1821,131 @@ export function TransitMap() {
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+	      <div ref={containerRef} className="h-full w-full" />
 
-      {/* TTC Lines legend + neighbourhood panel — top left */}
-      <div className="absolute top-6 left-6 flex flex-col gap-4 pointer-events-auto" style={{ maxHeight: "calc(100vh - 48px)", overflowY: "auto" }}>
-        <div className="rounded-xl border border-[#D7D7D7] bg-white px-4 py-4 shadow-sm w-64">
-          <div className="mb-2">
-            <p className="text-lg font-bold text-stone-800">Lines</p>
-          </div>
+	      {/* TTC Lines legend + neighbourhood panel — top left */}
+	      <div className="absolute top-6 left-6 flex flex-col gap-4 pointer-events-auto" style={{ maxHeight: "calc(100vh - 48px)" }}>
+	        <div className="rounded-xl border border-[#D7D7D7] bg-white shadow-sm w-64 flex flex-col overflow-hidden" style={{ maxHeight: "calc(100vh - 96px)" }}>
+	          {/* sticky header */}
+	          <div className="px-4 pt-4 pb-2 shrink-0">
+	            <p className="text-lg font-bold text-stone-800">Lines</p>
+	          </div>
+	          {/* scrollable content */}
+	          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+	            {/* ── Lines sections: grouped by type, custom lines merged in */}
+	            {(
+	              [
+	                { key: "subway",    label: "Subway / LRT", types: ["subway", "lrt"] as Route["type"][] },
+	                { key: "streetcar", label: "Streetcars",   types: ["streetcar"] as Route["type"][] },
+	                { key: "bus",       label: "Bus",          types: ["bus"] as Route["type"][] },
+	              ]
+	            ).map(({ key, label, types }) => {
+	              const sectionRoutes = [
+	                ...ROUTES.filter((r) => types.includes(r.type)),
+	                ...BUS_ROUTES.filter((r) => types.includes(r.type)),
+	                ...customLines.filter((r) => types.includes(r.type)),
+	              ];
+	              if (sectionRoutes.length === 0) return null;
+	              const allHidden = sectionRoutes.every((r) => hiddenRoutes.has(r.id));
+	              const collapsed = collapsedSections[key] ?? false;
+	              return (
+	                <div key={key} className="mb-2">
+	                  <div className="flex items-center gap-1 mb-1">
+	                    <button
+	                      onClick={() => setCollapsedSections((prev) => ({ ...prev, [key]: !collapsed }))}
+	                      className="flex items-center gap-1 flex-1 text-left"
+	                    >
+	                      <svg viewBox="0 0 10 10" fill="currentColor" className={`h-2.5 w-2.5 text-stone-400 transition-transform shrink-0 ${collapsed ? "-rotate-90" : ""}`}>
+	                        <path d="M2 3l3 4 3-4H2z"/>
+	                      </svg>
+	                      <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">{label}</span>
+	                    </button>
+	                    <button
+	                      title={allHidden ? "Show all" : "Hide all"}
+	                      onClick={() => setHiddenRoutes((prev) => {
+	                        const next = new Set(prev);
+	                        if (allHidden) sectionRoutes.forEach((r) => next.delete(r.id));
+	                        else sectionRoutes.forEach((r) => next.add(r.id));
+	                        return next;
+	                      })}
+	                      className="p-0.5 text-stone-400 hover:text-stone-700 transition-colors"
+	                    >
+	                      {allHidden ? (
+	                        <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+	                          <path d="M2 2l12 12M6.5 6.6A3 3 0 0 0 9.4 9.5"/><path d="M4.2 4.3C2.9 5.2 1.8 6.5 1 8c1.5 3 4 5 7 5a8 8 0 0 0 3.5-.8M6 2.3A8 8 0 0 1 8 2c3 0 5.5 2 7 5-0.5 1-1.2 2-2 2.7"/>
+	                        </svg>
+	                      ) : (
+	                        <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+	                          <path d="M1 8c1.5-3 4-5 7-5s5.5 2 7 5c-1.5 3-4 5-7 5S2.5 11 1 8z"/><circle cx="8" cy="8" r="2.5"/>
+	                        </svg>
+	                      )}
+	                    </button>
+	                  </div>
+	                  {!collapsed && (
+	                    <ul className="space-y-0.5 pl-4">
+	                      {sectionRoutes.map((r) => {
+	                        const isActive = addStationToLine === r.id;
+	                        const isHidden = hiddenRoutes.has(r.id);
+	                        return (
+	                          <li key={r.id} className="group">
+	                            <div className="flex items-center gap-2">
+	                              <button
+	                                title={isActive ? "Deselect line" : "Select to add stations"}
+	                                onClick={() => {
+	                                  if (!isActive) { handleSetDrawMode("normal"); snapshotHistory(); }
+	                                  setAddStationToLine(isActive ? null : r.id);
+	                                }}
+	                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all ${isActive ? "ring-2 ring-offset-1" : isHidden ? "opacity-30" : "opacity-60 hover:opacity-100"}`}
+	                                style={isActive ? { outline: `2px solid ${r.color}`, outlineOffset: "2px" } : {}}
+	                              >
+	                                <span className="h-2 w-4 rounded-full" style={{ background: r.color }} />
+	                              </button>
+	                              <button
+	                                className={`flex-1 truncate text-left text-sm transition-colors ${isActive ? "font-semibold text-stone-900" : isHidden ? "text-stone-300" : "text-stone-600 hover:text-stone-900"}`}
+	                                onClick={() => setSelectedRoute(r)}
+	                              >{r.name}</button>
+	                              <button
+	                                title={isHidden ? "Show" : "Hide"}
+	                                onClick={() => setHiddenRoutes((prev) => { const next = new Set(prev); isHidden ? next.delete(r.id) : next.add(r.id); return next; })}
+	                                className="opacity-0 group-hover:opacity-100 p-0.5 text-stone-300 hover:text-stone-600 transition-all"
+	                              >
+	                                {isHidden ? (
+	                                  <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 1l10 10M5 5.2A2 2 0 0 0 6.8 7M3.2 3.3C2.2 4 1.4 4.9 1 6c1 2 3 3.5 5 3.5a6 6 0 0 0 2.4-.5M4.5 1.7A6 6 0 0 1 6 1.5c2 0 4 1.5 5 3.5-.4.8-.9 1.4-1.5 2"/></svg>
+	                                ) : (
+	                                  <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 6c1-2 3-3.5 5-3.5S10 4 11 6c-1 2-3 3.5-5 3.5S2 8 1 6z"/><circle cx="6" cy="6" r="1.8"/></svg>
+	                                )}
+	                              </button>
+	                            </div>
+	                          </li>
+	                        );
+	                      })}
+	                    </ul>
+	                  )}
+	                </div>
+	              );
+	            })}
 
-          {/* ── Lines sections: grouped by type, custom lines merged in */}
-          {(
-            [
-              { key: "subway",    label: "Subway / LRT", types: ["subway", "lrt"] as Route["type"][] },
-              { key: "streetcar", label: "Streetcars",   types: ["streetcar"] as Route["type"][] },
-              { key: "bus",       label: "Bus",          types: ["bus"] as Route["type"][] },
-            ]
-          ).map(({ key, label, types }) => {
-            const sectionRoutes = [
-              ...ROUTES.filter((r) => types.includes(r.type)),
-              ...customLines.filter((r) => types.includes(r.type)),
-            ];
-            if (sectionRoutes.length === 0) return null;
-            const allHidden = sectionRoutes.every((r) => hiddenRoutes.has(r.id));
-            const collapsed = collapsedSections[key] ?? false;
-            return (
-              <div key={key} className="mb-2">
-                <div className="flex items-center gap-1 mb-1">
-                  <button
-                    onClick={() => setCollapsedSections((prev) => ({ ...prev, [key]: !collapsed }))}
-                    className="flex items-center gap-1 flex-1 text-left"
-                  >
-                    <svg viewBox="0 0 10 10" fill="currentColor" className={`h-2.5 w-2.5 text-stone-400 transition-transform shrink-0 ${collapsed ? "-rotate-90" : ""}`}>
-                      <path d="M2 3l3 4 3-4H2z"/>
-                    </svg>
-                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">{label}</span>
-                  </button>
-                  <button
-                    title={allHidden ? "Show all" : "Hide all"}
-                    onClick={() => setHiddenRoutes((prev) => {
-                      const next = new Set(prev);
-                      if (allHidden) sectionRoutes.forEach((r) => next.delete(r.id));
-                      else sectionRoutes.forEach((r) => next.add(r.id));
-                      return next;
-                    })}
-                    className="p-0.5 text-stone-400 hover:text-stone-700 transition-colors"
-                  >
-                    {allHidden ? (
-                      <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 2l12 12M6.5 6.6A3 3 0 0 0 9.4 9.5"/><path d="M4.2 4.3C2.9 5.2 1.8 6.5 1 8c1.5 3 4 5 7 5a8 8 0 0 0 3.5-.8M6 2.3A8 8 0 0 1 8 2c3 0 5.5 2 7 5-0.5 1-1.2 2-2 2.7"/>
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M1 8c1.5-3 4-5 7-5s5.5 2 7 5c-1.5 3-4 5-7 5S2.5 11 1 8z"/><circle cx="8" cy="8" r="2.5"/>
-                      </svg>
-                    )}
-                  </button>
-                </div>
-                {!collapsed && (
-                  <ul className="space-y-0.5 pl-4">
-                    {sectionRoutes.map((r) => {
-                      const isActive = addStationToLine === r.id;
-                      const isHidden = hiddenRoutes.has(r.id);
-                      return (
-                        <li key={r.id} className="group flex items-center gap-2">
-                          <button
-                            title={isActive ? "Deselect line" : "Select to add stations"}
-                            onClick={() => {
-                              if (!isActive) { handleSetDrawMode("normal"); snapshotHistory(); }
-                              setAddStationToLine(isActive ? null : r.id);
-                            }}
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all ${isActive ? "ring-2 ring-offset-1" : isHidden ? "opacity-30" : "opacity-60 hover:opacity-100"}`}
-                            style={isActive ? { outline: `2px solid ${r.color}`, outlineOffset: "2px" } : {}}
-                          >
-                            <span className="h-2 w-4 rounded-full" style={{ background: r.color }} />
-                          </button>
-                          <button
-                            className={`flex-1 truncate text-left text-sm transition-colors ${isActive ? "font-semibold text-stone-900" : isHidden ? "text-stone-300" : "text-stone-600 hover:text-stone-900"}`}
-                            onClick={() => setSelectedRoute(r)}
-                          >{r.name}</button>
-                          <button
-                            title={isHidden ? "Show" : "Hide"}
-                            onClick={() => setHiddenRoutes((prev) => { const next = new Set(prev); isHidden ? next.delete(r.id) : next.add(r.id); return next; })}
-                            className="opacity-0 group-hover:opacity-100 p-0.5 text-stone-300 hover:text-stone-600 transition-all"
-                          >
-                            {isHidden ? (
-                              <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 1l10 10M5 5.2A2 2 0 0 0 6.8 7M3.2 3.3C2.2 4 1.4 4.9 1 6c1 2 3 3.5 5 3.5a6 6 0 0 0 2.4-.5M4.5 1.7A6 6 0 0 1 6 1.5c2 0 4 1.5 5 3.5-.4.8-.9 1.4-1.5 2"/></svg>
-                            ) : (
-                              <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M1 6c1-2 3-3.5 5-3.5S10 4 11 6c-1 2-3 3.5-5 3.5S2 8 1 6z"/><circle cx="6" cy="6" r="1.8"/></svg>
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
+	            {generatedRoute && (
+	              <div className="mt-1 border-t border-stone-100 pt-2">
+	                <li
+	                  className="flex cursor-pointer items-center gap-2 text-sm text-stone-600 hover:text-stone-900 list-none"
+	                  onClick={() => setSelectedRoute(null)}
+	                >
+	                  <span className="h-2 w-4 shrink-0 rounded-full" style={{ background: generatedRoute.color }} />
+	                  <span className="truncate">{generatedRoute.name}</span>
+	                </li>
+	              </div>
+	            )}
 
-          {generatedRoute && (
-            <div className="mt-1 border-t border-stone-100 pt-2">
-              <li
-                className="flex cursor-pointer items-center gap-2 text-sm text-stone-600 hover:text-stone-900 list-none"
-                onClick={() => setSelectedRoute(null)}
-              >
-                <span className="h-2 w-4 shrink-0 rounded-full" style={{ background: generatedRoute.color }} />
-                <span className="truncate">{generatedRoute.name}</span>
-              </li>
-            </div>
-          )}
-
-          <button
-            onClick={() => setShowNewLineModal(true)}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-stone-900 py-2 text-sm font-semibold text-white hover:bg-stone-700 transition-colors"
-          >
-            <span className="text-base leading-none">+</span>
-            New Line
-          </button>
-        </div>
+	            <button
+	              onClick={() => setShowNewLineModal(true)}
+	              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-stone-900 py-2 text-sm font-semibold text-white hover:bg-stone-700 transition-colors"
+	            >
+	              <span className="text-base leading-none">+</span>
+	              New Line
+	            </button>
+	          </div>
+	        </div>
 
         {focusedNeighbourhood && (
           <NeighbourhoodPanel
@@ -2349,10 +2394,10 @@ export function TransitMap() {
       />
 
       {/* Import / Export — top right */}
-      <div className="pointer-events-none absolute top-6 right-6 flex items-center gap-2 z-10">
+      <div className="pointer-events-none absolute top-5 right-6 flex items-center gap-2 z-10">
         <button
           onClick={handleImport}
-          className="pointer-events-auto flex h-10 items-center gap-2 rounded-xl border border-[#D7D7D7] bg-white px-4 text-sm font-normal text-stone-500 shadow-sm hover:text-stone-800 transition-colors"
+          className="pointer-events-auto flex h-13 items-center gap-2 rounded-xl border border-[#D7D7D7] bg-white px-4 text-base font-normal text-stone-500 shadow-sm hover:text-stone-800 transition-colors"
         >
           <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <path d="M8 2v8M5 7l3 3 3-3"/><rect x="2" y="11" width="12" height="3" rx="1" fill="none"/>
@@ -2363,7 +2408,7 @@ export function TransitMap() {
           <button
             onClick={handleExport}
             disabled={exportProgress !== null}
-            className="flex h-10 items-center gap-2 rounded-xl border border-[#D7D7D7] bg-white px-4 text-sm font-normal text-stone-500 shadow-sm hover:text-stone-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex h-13 items-center gap-2 rounded-xl border border-[#D7D7D7] bg-white px-4 text-base font-normal text-stone-500 shadow-sm hover:text-stone-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 10V2M5 5l3-3 3 3"/><rect x="2" y="11" width="12" height="3" rx="1" fill="none"/>
@@ -2437,6 +2482,84 @@ export function TransitMap() {
                 className="rounded-xl bg-stone-800 px-5 py-2 text-sm font-medium text-white hover:bg-stone-700 transition-colors"
               >
                 Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GTFS Validation modal */}
+      {validationResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-6 w-full max-w-lg rounded-2xl border border-[#D7D7D7] bg-white p-8 shadow-2xl">
+            <div className="mb-5 flex items-start gap-3">
+              {validationResult.result.valid ? (
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100">
+                  <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 text-green-600" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="2.5,8.5 6,12 13.5,4" />
+                  </svg>
+                </div>
+              ) : (
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100">
+                  <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 text-red-600" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="8" cy="8" r="6" />
+                    <line x1="8" y1="5" x2="8" y2="8.5" />
+                    <circle cx="8" cy="11" r="0.5" fill="currentColor" />
+                  </svg>
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-stone-800">
+                  GTFS Validation — {validationResult.context === "export" ? "Export" : "Import"}
+                  {validationResult.context === "import" && !validationResult.result.valid && " blocked"}
+                </p>
+                {/* Stats row */}
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-500">
+                  <span>{validationResult.result.stats.routes} routes</span>
+                  <span>{validationResult.result.stats.trips} trips</span>
+                  <span>{validationResult.result.stats.stops} stops</span>
+                  <span>{validationResult.result.stats.stopTimes.toLocaleString()} stop-times</span>
+                  {validationResult.result.stats.shapes > 0 && (
+                    <span>{validationResult.result.stats.shapes} shape pts</span>
+                  )}
+                </div>
+                {/* Issue counts */}
+                <div className="mt-2 flex gap-3 text-xs">
+                  {(() => {
+                    const errors   = validationResult.result.issues.filter((i) => i.severity === "error").length;
+                    const warnings = validationResult.result.issues.filter((i) => i.severity === "warning").length;
+                    return (
+                      <>
+                        {errors > 0   && <span className="font-medium text-red-600">{errors} error{errors !== 1 ? "s" : ""}</span>}
+                        {warnings > 0 && <span className="font-medium text-amber-600">{warnings} warning{warnings !== 1 ? "s" : ""}</span>}
+                        {errors === 0 && warnings === 0 && <span className="font-medium text-green-600">No issues found</span>}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Issue list */}
+            {validationResult.result.issues.length > 0 && (
+              <ul className="mb-5 max-h-56 overflow-y-auto space-y-1.5 rounded-xl bg-stone-50 p-3">
+                {validationResult.result.issues.map((issue, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs">
+                    <span className={`mt-px shrink-0 font-mono font-semibold ${issue.severity === "error" ? "text-red-500" : "text-amber-500"}`}>
+                      {issue.code}
+                    </span>
+                    <span className="text-stone-600 leading-relaxed">{issue.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                onClick={() => setValidationResult(null)}
+                className="rounded-xl bg-stone-800 px-5 py-2 text-sm font-medium text-white hover:bg-stone-700 transition-colors"
+              >
+                {validationResult.context === "import" && !validationResult.result.valid ? "Cancel import" : "Dismiss"}
               </button>
             </div>
           </div>
