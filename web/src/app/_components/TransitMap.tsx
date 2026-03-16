@@ -25,6 +25,58 @@ type DrawMode = "normal" | "select" | "boundary";
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const TORONTO: [number, number] = [-79.3832, 43.6532];
 
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+/** Returns a darker border colour for a route's outline layer.
+ *  Known route colours use exact hardcoded values; anything else
+ *  gets a computed darkening based on perceptual luma. */
+function darkenColor(hex: string): string {
+  // Exact matches for the built-in lines
+  const known: Record<string, string> = {
+    "#FFCD00": "#E3A007", // Line 1 – yellow → amber
+    "#00A650": "#005C2E", // Line 2 – green  → forest green
+    "#B100CD": "#5B006B", // Line 3 – purple → deep purple
+  };
+  const match = known[hex.toUpperCase()];
+  if (match) return match;
+
+  // Fallback: compute a perceptually-weighted lightness reduction
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  // High-luma colours darken less; low-luma colours darken more
+  // (calibrated so the three known pairs map almost exactly)
+  const factor = 0.51 + 1.05 * Math.pow(luma, 3.6);
+
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+  const delta = max - min;
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (delta > 0) {
+    s = delta / (1 - Math.abs(2 * l - 1));
+    if (max === rn)      h = (((gn - bn) / delta) % 6 + 6) % 6;
+    else if (max === gn) h = (bn - rn) / delta + 2;
+    else                 h = (rn - gn) / delta + 4;
+    h *= 60;
+  }
+  const newL = l * factor;
+  const c = (1 - Math.abs(2 * newL - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = newL - c / 2;
+  let r2 = 0, g2 = 0, b2 = 0;
+  if      (h < 60)  { r2 = c; g2 = x; }
+  else if (h < 120) { r2 = x; g2 = c; }
+  else if (h < 180) {          g2 = c; b2 = x; }
+  else if (h < 240) {          g2 = x; b2 = c; }
+  else if (h < 300) { r2 = x;          b2 = c; }
+  else              { r2 = c;          b2 = x; }
+  const toHex = (v: number) =>
+    Math.round(Math.max(0, Math.min(255, (v + m) * 255))).toString(16).padStart(2, "0");
+  return `#${toHex(r2)}${toHex(g2)}${toHex(b2)}`;
+}
+
 // ─── main map component ──────────────────────────────────────────────────────
 
 export function TransitMap() {
@@ -1630,7 +1682,7 @@ export function TransitMap() {
 	      const sc = route.type === "streetcar";
 	      const bus = route.type === "bus";
 	      map.addLayer({ id: `route-shadow-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": bus ? 2 : sc ? 5 : 10, "line-opacity": bus ? 0.05 : sc ? 0.08 : 0.12, "line-blur": bus ? 2 : sc ? 3 : 4 } });
-	      map.addLayer({ id: `route-outline-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": bus ? 2 : sc ? 5 : 11, "line-opacity": bus ? 0.5 : sc ? 0.7 : 0.9 } });
+	      map.addLayer({ id: `route-outline-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": darkenColor(route.color), "line-width": bus ? 2 : sc ? 5 : 11, "line-opacity": bus ? 0.5 : sc ? 0.7 : 0.9 } });
 	      map.addLayer({ id: `route-line-${route.id}`, type: "line", source: `route-${route.id}`, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": route.color, "line-width": bus ? 1.5 : sc ? 3 : 7, "line-opacity": bus ? 0.7 : sc ? 0.85 : 1 } });
 	      map.addLayer({ id: `stops-ring-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: sc ? 12 : 11, paint: { "circle-radius": bus ? 2 : sc ? 3.5 : 6, "circle-color": route.color, "circle-opacity": 0.25, "circle-stroke-width": 0 } });
 	      map.addLayer({ id: `stops-selected-${route.id}`, type: "circle", source: `stops-${route.id}`, minzoom: 9, filter: ["==", ["get", "name"], "__none__"], paint: { "circle-radius": bus ? 3.5 : sc ? 5 : 9, "circle-color": route.color, "circle-opacity": 0.5, "circle-stroke-width": bus ? 1 : sc ? 1.5 : 2, "circle-stroke-color": "#ffffff" } });
