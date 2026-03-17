@@ -21,7 +21,7 @@ build/
 .pnp.*
 
 # Go
-bin/
+/bin/
 *.exe
 *.test
 *.out
@@ -58,13 +58,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Data
-*.shp
-*.shx
-*.dbf
-*.qix
-filtered_output.csv
-sorted_output.csv
+# CDK
+cdk.out/
 
 # Optional: uncomment if you don't commit sqlc-generated Go
 # db/db/*.go
