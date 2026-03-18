@@ -154,7 +154,18 @@ jobs:
             exit 1
           fi
 
-          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nPYTHON_DATABASE_URL=%s' "${DB_URL}")"
+          DB_URL_SQLALCHEMY="${DB_URL}"
+          if [[ "${DB_URL_SQLALCHEMY}" == postgresql://* ]]; then
+            DB_URL_SQLALCHEMY="postgresql+psycopg://${DB_URL_SQLALCHEMY#postgresql://}"
+          elif [[ "${DB_URL_SQLALCHEMY}" == postgres://* ]]; then
+            DB_URL_SQLALCHEMY="postgresql+psycopg://${DB_URL_SQLALCHEMY#postgres://}"
+          fi
+
+          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nPYTHON_DATABASE_URL=%s\nSUPABASE_DB_URL=%s\nDATABASE_URL_PYTHON=%s\nDATABASE_URL_PYTHON_RIDERSHIP=%s' \
+            "${DB_URL_SQLALCHEMY}" \
+            "${DB_URL_SQLALCHEMY}" \
+            "${DB_URL_SQLALCHEMY}" \
+            "${DB_URL_SQLALCHEMY}")"
 
           kubectl create secret generic "${{ env.K8S_ENV_SECRET_NAME }}" \
             -n "${{ env.NAMESPACE }}" \

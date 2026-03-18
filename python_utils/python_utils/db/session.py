@@ -25,7 +25,9 @@ def _get_db_log_enabled() -> bool:
 
 def _get_database_url() -> str:
     value = (
-        os.getenv("SUPABASE_DB_URL", "")
+        os.getenv("DATABASE_URL_PYTHON_RIDERSHIP", "")
+        or os.getenv("DATABASE_URL_PYTHON", "")
+        or os.getenv("PYTHON_DATABASE_URL", "")
         or os.getenv("SUPABASE_DB_URL", "")
     ).strip()
     if not value:
@@ -33,6 +35,11 @@ def _get_database_url() -> str:
             "DATABASE_URL_PYTHON_RIDERSHIP (or DATABASE_URL_PYTHON) is not set. "
             "Expected format: postgresql+psycopg://user:password@host:5432/database"
         )
+    # Normalize legacy postgres URLs to the installed SQLAlchemy driver.
+    if value.startswith("postgresql://"):
+        value = value.replace("postgresql://", "postgresql+psycopg://", 1)
+    elif value.startswith("postgres://"):
+        value = value.replace("postgres://", "postgresql+psycopg://", 1)
     return value
 
 
