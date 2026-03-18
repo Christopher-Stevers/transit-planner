@@ -32,6 +32,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: Production
 
     steps:
       - uses: actions/checkout@v4
@@ -54,12 +55,40 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}-nextjs
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET || vars.AUTH_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
+          BACKBOARD_API_KEY: ${{ secrets.BACKBOARD_API_KEY || vars.BACKBOARD_API_KEY }}
+          BACKBOARD_KEY: ${{ secrets.BACKBOARD_KEY || vars.BACKBOARD_KEY }}
+          ELEVENLABS_KEY: ${{ secrets.ELEVENLABS_KEY || vars.ELEVENLABS_KEY }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN || vars.NEXT_PUBLIC_MAPBOX_TOKEN }}
         run: |
           set -euo pipefail
           IMAGE_URI="$ECR_REGISTRY/${{ env.ECR_REPO_NAME }}:$IMAGE_TAG"
+          EFFECTIVE_BACKBOARD_API_KEY="${BACKBOARD_API_KEY:-}"
+          if [ -z "${EFFECTIVE_BACKBOARD_API_KEY}" ]; then
+            EFFECTIVE_BACKBOARD_API_KEY="${BACKBOARD_KEY:-}"
+          fi
+
+          if [ -z "${AUTH_SECRET:-}" ] || \
+             [ -z "${SUPABASE_URL:-}" ] || \
+             [ -z "${SUPABASE_KEY:-}" ] || \
+             [ -z "${NEXT_PUBLIC_MAPBOX_TOKEN:-}" ] || \
+             [ -z "${ELEVENLABS_KEY:-}" ] || \
+             [ -z "${EFFECTIVE_BACKBOARD_API_KEY:-}" ]; then
+            echo "One or more required build-time secrets/vars are missing."
+            echo "Required: AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, ELEVENLABS_KEY, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
+            exit 1
+          fi
 
           docker build \
             -f Dockerfile.web \
+            --build-arg AUTH_SECRET="${AUTH_SECRET}" \
+            --build-arg SUPABASE_URL="${SUPABASE_URL}" \
+            --build-arg SUPABASE_KEY="${SUPABASE_KEY}" \
+            --build-arg BACKBOARD_API_KEY="${EFFECTIVE_BACKBOARD_API_KEY}" \
+            --build-arg ELEVENLABS_KEY="${ELEVENLABS_KEY}" \
+            --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="${NEXT_PUBLIC_MAPBOX_TOKEN}" \
             -t "$IMAGE_URI" \
             .
 
@@ -77,17 +106,18 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v4
 
-      - name: Reconcile app env secret from GitHub Actions secrets
+      - name: Reconcile app env secret from GitHub Actions secrets/vars
         shell: bash
         env:
-          DATABASE_URL_WEB: ${{ secrets.SUPABASE_DB_URL }}
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          BACKBOARD_API_KEY: ${{ secrets.BACKBOARD_API_KEY }}
-          BACKBOARD_KEY: ${{ secrets.BACKBOARD_KEY }}
-          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
-          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
+          DATABASE_URL_WEB: ${{ secrets.SUPABASE_DB_URL || vars.SUPABASE_DB_URL }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET || vars.AUTH_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
+          BACKBOARD_API_KEY: ${{ secrets.BACKBOARD_API_KEY || vars.BACKBOARD_API_KEY }}
+          BACKBOARD_KEY: ${{ secrets.BACKBOARD_KEY || vars.BACKBOARD_KEY }}
+          ELEVENLABS_KEY: ${{ secrets.ELEVENLABS_KEY || vars.ELEVENLABS_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY || vars.GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN || vars.NEXT_PUBLIC_MAPBOX_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -100,21 +130,23 @@ jobs:
              [ -z "${AUTH_SECRET:-}" ] || \
              [ -z "${SUPABASE_URL:-}" ] || \
              [ -z "${SUPABASE_KEY:-}" ] || \
+             [ -z "${ELEVENLABS_KEY:-}" ] || \
              [ -z "${GOOGLE_MAPS_API_KEY:-}" ] || \
              [ -z "${NEXT_PUBLIC_MAPBOX_TOKEN:-}" ] || \
              [ -z "${EFFECTIVE_BACKBOARD_API_KEY:-}" ]; then
-            echo "One or more required GitHub Actions secrets are missing."
-            echo "Required: SUPABASE_DB_URL, AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, GOOGLE_MAPS_API_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
+            echo "One or more required GitHub Actions secrets/vars are missing."
+            echo "Required: SUPABASE_DB_URL, AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, ELEVENLABS_KEY, GOOGLE_MAPS_API_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
             exit 1
           fi
 
-          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nAUTH_SECRET=%s\n%s=%s\nSUPABASE_URL=%s\nSUPABASE_KEY=%s\nSUPABASE_DB_URL=%s\nBACKBOARD_API_KEY=%s\nGOOGLE_MAPS_API_KEY=%s\nNEXT_PUBLIC_MAPBOX_TOKEN=%s' \
+          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nAUTH_SECRET=%s\n%s=%s\nSUPABASE_URL=%s\nSUPABASE_KEY=%s\nSUPABASE_DB_URL=%s\nBACKBOARD_API_KEY=%s\nELEVENLABS_KEY=%s\nGOOGLE_MAPS_API_KEY=%s\nNEXT_PUBLIC_MAPBOX_TOKEN=%s' \
             "${AUTH_SECRET}" \
             "${{ env.APP_DATABASE_URL_KEY }}" "${DATABASE_URL_WEB}" \
             "${SUPABASE_URL}" \
             "${SUPABASE_KEY}" \
             "${DATABASE_URL_WEB}" \
             "${EFFECTIVE_BACKBOARD_API_KEY}" \
+            "${ELEVENLABS_KEY}" \
             "${GOOGLE_MAPS_API_KEY}" \
             "${NEXT_PUBLIC_MAPBOX_TOKEN}")"
 
