@@ -418,6 +418,13 @@ NEXTJS_DATABASE_URL=${nextjsDatabaseUrlSecret
       ),
     });
 
+    const clusterAdminRole = new iam.Role(this, "ClusterAdminRole", {
+      roleName: `${config.clusterName}-cluster-admin`,
+      // Trust the account so you can assume this role from a local IAM user
+      // or from the account root session when recovering cluster access.
+      assumedBy: new iam.AccountRootPrincipal(),
+    });
+
     // ECR push/pull for app repo deployed from GitHub Actions
     appRepo.grantPullPush(ghRole);
 
@@ -498,12 +505,21 @@ NEXTJS_DATABASE_URL=${nextjsDatabaseUrlSecret
       username: "github-actions",
     });
 
+    // Stable admin role for local kubectl access.
+    cluster.awsAuth.addRoleMapping(clusterAdminRole, {
+      groups: ["system:masters"],
+      username: "cluster-admin",
+    });
+
     // --- Outputs ---
     new cdk.CfnOutput(this, "ClusterName", { value: config.clusterName });
     new cdk.CfnOutput(this, "AppEcrRepoUri", {
       value: appRepo.repositoryUri,
     });
     new cdk.CfnOutput(this, "GitHubRoleArn", { value: ghRole.roleArn });
+    new cdk.CfnOutput(this, "ClusterAdminRoleArn", {
+      value: clusterAdminRole.roleArn,
+    });
     new cdk.CfnOutput(this, "Namespace", { value: config.namespace });
 
     new cdk.CfnOutput(this, "DatabaseEndpoint", {
