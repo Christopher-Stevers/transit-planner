@@ -18,8 +18,10 @@ await import("./src/env.js");
 
 /** @type {import("next").NextConfig} */
 const isDev = process.env.NODE_ENV !== "production";
+const enableUpgradeInsecureRequests =
+  process.env.CSP_UPGRADE_INSECURE_REQUESTS === "true";
 
-const csp = [
+const cspDirectives = [
   "default-src 'self'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
@@ -34,8 +36,13 @@ const csp = [
   "child-src 'self' blob:",
   "frame-src 'self'",
   "manifest-src 'self'",
-  "upgrade-insecure-requests",
-].join("; ");
+];
+
+if (enableUpgradeInsecureRequests) {
+  cspDirectives.push("upgrade-insecure-requests");
+}
+
+const csp = cspDirectives.join("; ");
 
 const config = {
   devIndicators: false,
