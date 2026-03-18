@@ -60,7 +60,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
           BACKBOARD_API_KEY: ${{ secrets.BACKBOARD_API_KEY || vars.BACKBOARD_API_KEY }}
           BACKBOARD_KEY: ${{ secrets.BACKBOARD_KEY || vars.BACKBOARD_KEY }}
-          ELEVENLABS_KEY: ${{ secrets.ELEVENLABS_KEY || vars.ELEVENLABS_KEY }}
+          ELEVENLABS_KEY: ${{ secrets.ELEVENLABS_KEY || vars.ELEVENLABS_KEY || secrets.ELEVENLABS_API_KEY || vars.ELEVENLABS_API_KEY }}
           NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN || vars.NEXT_PUBLIC_MAPBOX_TOKEN }}
         run: |
           set -euo pipefail
@@ -74,10 +74,9 @@ jobs:
              [ -z "${SUPABASE_URL:-}" ] || \
              [ -z "${SUPABASE_KEY:-}" ] || \
              [ -z "${NEXT_PUBLIC_MAPBOX_TOKEN:-}" ] || \
-             [ -z "${ELEVENLABS_KEY:-}" ] || \
              [ -z "${EFFECTIVE_BACKBOARD_API_KEY:-}" ]; then
             echo "One or more required build-time secrets/vars are missing."
-            echo "Required: AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, ELEVENLABS_KEY, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
+            echo "Required: AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
             exit 1
           fi
 
@@ -115,7 +114,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
           BACKBOARD_API_KEY: ${{ secrets.BACKBOARD_API_KEY || vars.BACKBOARD_API_KEY }}
           BACKBOARD_KEY: ${{ secrets.BACKBOARD_KEY || vars.BACKBOARD_KEY }}
-          ELEVENLABS_KEY: ${{ secrets.ELEVENLABS_KEY || vars.ELEVENLABS_KEY }}
+          ELEVENLABS_KEY: ${{ secrets.ELEVENLABS_KEY || vars.ELEVENLABS_KEY || secrets.ELEVENLABS_API_KEY || vars.ELEVENLABS_API_KEY }}
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY || vars.GOOGLE_MAPS_API_KEY }}
           NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN || vars.NEXT_PUBLIC_MAPBOX_TOKEN }}
         run: |
@@ -130,25 +129,27 @@ jobs:
              [ -z "${AUTH_SECRET:-}" ] || \
              [ -z "${SUPABASE_URL:-}" ] || \
              [ -z "${SUPABASE_KEY:-}" ] || \
-             [ -z "${ELEVENLABS_KEY:-}" ] || \
              [ -z "${GOOGLE_MAPS_API_KEY:-}" ] || \
              [ -z "${NEXT_PUBLIC_MAPBOX_TOKEN:-}" ] || \
              [ -z "${EFFECTIVE_BACKBOARD_API_KEY:-}" ]; then
             echo "One or more required GitHub Actions secrets/vars are missing."
-            echo "Required: SUPABASE_DB_URL, AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, ELEVENLABS_KEY, GOOGLE_MAPS_API_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
+            echo "Required: SUPABASE_DB_URL, AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, GOOGLE_MAPS_API_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
             exit 1
           fi
 
-          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nAUTH_SECRET=%s\n%s=%s\nSUPABASE_URL=%s\nSUPABASE_KEY=%s\nSUPABASE_DB_URL=%s\nBACKBOARD_API_KEY=%s\nELEVENLABS_KEY=%s\nGOOGLE_MAPS_API_KEY=%s\nNEXT_PUBLIC_MAPBOX_TOKEN=%s' \
+          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nAUTH_SECRET=%s\n%s=%s\nSUPABASE_URL=%s\nSUPABASE_KEY=%s\nSUPABASE_DB_URL=%s\nBACKBOARD_API_KEY=%s\nGOOGLE_MAPS_API_KEY=%s\nNEXT_PUBLIC_MAPBOX_TOKEN=%s' \
             "${AUTH_SECRET}" \
             "${{ env.APP_DATABASE_URL_KEY }}" "${DATABASE_URL_WEB}" \
             "${SUPABASE_URL}" \
             "${SUPABASE_KEY}" \
             "${DATABASE_URL_WEB}" \
             "${EFFECTIVE_BACKBOARD_API_KEY}" \
-            "${ELEVENLABS_KEY}" \
             "${GOOGLE_MAPS_API_KEY}" \
             "${NEXT_PUBLIC_MAPBOX_TOKEN}")"
+
+          if [ -n "${ELEVENLABS_KEY:-}" ]; then
+            ENV_FILE_CONTENT="${ENV_FILE_CONTENT}"$'\n'"ELEVENLABS_KEY=${ELEVENLABS_KEY}"
+          fi
 
           kubectl create secret generic "${{ env.K8S_ENV_SECRET_NAME }}" \
             -n "${{ env.NAMESPACE }}" \
