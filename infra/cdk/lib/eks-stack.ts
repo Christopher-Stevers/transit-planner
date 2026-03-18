@@ -409,7 +409,8 @@ NEXTJS_DATABASE_URL=${nextjsDatabaseUrlSecret
         githubOidcProvider.openIdConnectProviderArn,
         {
           StringLike: {
-            "token.actions.githubusercontent.com:sub": `repo:${config.github.owner}/${config.github.repo}:ref:refs/heads/${config.github.branch}`,
+            // Allow branch-based and environment-based GitHub OIDC subjects for this repo.
+            "token.actions.githubusercontent.com:sub": `repo:${config.github.owner}/${config.github.repo}:*`,
           },
           StringEquals: {
             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
