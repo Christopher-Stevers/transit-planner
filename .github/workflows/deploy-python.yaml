@@ -11,8 +11,8 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  CFN_STACK_NAME: EksStack
-  CLUSTER_NAME: my-monorepo-eks
+  CFN_STACK_NAME: TransitPlannerStack
+  CLUSTER_NAME: transit-planner-eks
   NAMESPACE: apps
   RELEASE_NAME: python-server
   CHART_PATH: infra/helm/python-server
@@ -85,7 +85,7 @@ jobs:
       - name: Configure AWS creds (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::764933859140:role/my-monorepo-eks-github-actions
+          role-to-assume: arn:aws:iam::764933859140:role/transit-planner-eks-github-actions
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: gha-${{ github.run_id }}-${{ github.run_attempt }}
           mask-aws-account-id: false
