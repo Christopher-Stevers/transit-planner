@@ -21,15 +21,11 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  CFN_STACK_NAME: EksStack
   CLUSTER_NAME: my-monorepo-eks
   NAMESPACE: apps
   RELEASE_NAME: nextjs-server
   CHART_PATH: infra/helm/nextjs-server
   ECR_REPO_NAME: transit-planner
-  DB_URL_SECRET_OUTPUT_KEY: NextJsDatabaseUrlSecretArn
-  AUTH_SECRET_OUTPUT_KEY: NextJsAuthSecretArn
-  AUTH_SECRET_FALLBACK_NAME: nextjs-auth-secret
   K8S_ENV_SECRET_NAME: nextjs-server-db
   APP_DATABASE_URL_KEY: DATABASE_URL_WEB
 
@@ -40,61 +36,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug GitHub context (pre-OIDC)
-        run: |
-          set -euo pipefail
-          echo "event_name=${{ github.event_name }}"
-          echo "repository=${{ github.repository }}"
-          echo "ref=${{ github.ref }}"
-          echo "ref_name=${{ github.ref_name }}"
-          echo "sha=${{ github.sha }}"
-          echo "actor=${{ github.actor }}"
-          echo "workflow=${{ github.workflow }}"
-          echo "run_id=${{ github.run_id }}"
-          echo "run_attempt=${{ github.run_attempt }}"
-
-      - name: Debug OIDC claims (inline)
-        shell: bash
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
-            echo "OIDC env vars are missing. Ensure permissions.id-token=write is set at workflow/job level."
-            exit 1
-          fi
-
-          RESP="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
-          TOKEN="$(echo "$RESP" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')"
-
-          if [ -z "${TOKEN:-}" ]; then
-            echo "Failed to obtain OIDC token response:"
-            echo "$RESP"
-            exit 1
-          fi
-
-          PAYLOAD_B64="$(echo "$TOKEN" | cut -d '.' -f2)"
-          PAD=$(( (4 - ${#PAYLOAD_B64} % 4) % 4 ))
-          if [ "$PAD" -gt 0 ]; then
-            PAYLOAD_B64="${PAYLOAD_B64}$(printf '=%.0s' $(seq 1 $PAD))"
-          fi
-
-          PAYLOAD_JSON="$(echo "$PAYLOAD_B64" | tr '_-' '/+' | base64 -d 2>/dev/null || true)"
-          if [ -z "${PAYLOAD_JSON:-}" ]; then
-            echo "Failed to decode JWT payload"
-            exit 1
-          fi
-
-          echo "OIDC payload:"
-          echo "$PAYLOAD_JSON"
-
-          echo "Extracted claims:"
-          echo "$PAYLOAD_JSON" | sed -n 's/.*"aud":"\([^"]*\)".*/aud=\1/p'
-          echo "$PAYLOAD_JSON" | sed -n 's/.*"sub":"\([^"]*\)".*/sub=\1/p'
-          echo "$PAYLOAD_JSON" | sed -n 's/.*"iss":"\([^"]*\)".*/iss=\1/p'
-
       - name: Configure AWS creds (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -104,12 +45,6 @@ jobs:
           mask-aws-account-id: false
           unset-current-credentials: true
           disable-retry: true
-
-      - name: Debug caller identity (post-OIDC)
-        run: |
-          set -euo pipefail
-          aws --version
-          aws sts get-caller-identity
 
       - name: Login to ECR
         id: login-ecr
@@ -124,7 +59,7 @@ jobs:
           IMAGE_URI="$ECR_REGISTRY/${{ env.ECR_REPO_NAME }}:$IMAGE_TAG"
 
           docker build \
-            -f web/Dockerfile \
+            -f Dockerfile.web \
             -t "$IMAGE_URI" \
             .
 
@@ -142,86 +77,46 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v4
 
-      - name: Reconcile app env secret from IaC outputs
+      - name: Reconcile app env secret from GitHub Actions secrets
         shell: bash
+        env:
+          DATABASE_URL_WEB: ${{ secrets.SUPABASE_DB_URL }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          BACKBOARD_API_KEY: ${{ secrets.BACKBOARD_API_KEY }}
+          BACKBOARD_KEY: ${{ secrets.BACKBOARD_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
         run: |
           set -euo pipefail
 
-          DB_SECRET_ARN="$(aws cloudformation describe-stacks \
-            --stack-name "${{ env.CFN_STACK_NAME }}" \
-            --query "Stacks[0].Outputs[?OutputKey=='${{ env.DB_URL_SECRET_OUTPUT_KEY }}'].OutputValue | [0]" \
-            --output text)"
+          EFFECTIVE_BACKBOARD_API_KEY="${BACKBOARD_API_KEY:-}"
+          if [ -z "${EFFECTIVE_BACKBOARD_API_KEY}" ]; then
+            EFFECTIVE_BACKBOARD_API_KEY="${BACKBOARD_KEY:-}"
+          fi
 
-          if [ -z "${DB_SECRET_ARN}" ] || [ "${DB_SECRET_ARN}" = "None" ]; then
-            echo "Could not resolve secret ARN from CloudFormation output key: ${{ env.DB_URL_SECRET_OUTPUT_KEY }}"
+          if [ -z "${DATABASE_URL_WEB:-}" ] || \
+             [ -z "${AUTH_SECRET:-}" ] || \
+             [ -z "${SUPABASE_URL:-}" ] || \
+             [ -z "${SUPABASE_KEY:-}" ] || \
+             [ -z "${GOOGLE_MAPS_API_KEY:-}" ] || \
+             [ -z "${NEXT_PUBLIC_MAPBOX_TOKEN:-}" ] || \
+             [ -z "${EFFECTIVE_BACKBOARD_API_KEY:-}" ]; then
+            echo "One or more required GitHub Actions secrets are missing."
+            echo "Required: SUPABASE_DB_URL, AUTH_SECRET, SUPABASE_URL, SUPABASE_KEY, GOOGLE_MAPS_API_KEY, NEXT_PUBLIC_MAPBOX_TOKEN, and BACKBOARD_API_KEY (or BACKBOARD_KEY)."
             exit 1
           fi
 
-          AUTH_SECRET_ARN="$(aws cloudformation describe-stacks \
-            --stack-name "${{ env.CFN_STACK_NAME }}" \
-            --query "Stacks[0].Outputs[?OutputKey=='${{ env.AUTH_SECRET_OUTPUT_KEY }}'].OutputValue | [0]" \
-            --output text)"
-
-          DB_URL="$(aws secretsmanager get-secret-value \
-            --secret-id "${DB_SECRET_ARN}" \
-            --query SecretString \
-            --output text | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["DATABASE_URL"])')"
-
-          if [ -z "${DB_URL}" ]; then
-            echo "DATABASE_URL is empty in secret: ${DB_SECRET_ARN}"
-            exit 1
-          fi
-
-          FALLBACK_SECRET_NAME="${{ env.CFN_STACK_NAME }}-${{ env.AUTH_SECRET_FALLBACK_NAME }}"
-
-          if [ -z "${AUTH_SECRET_ARN}" ] || [ "${AUTH_SECRET_ARN}" = "None" ]; then
-            echo "CloudFormation output missing for AUTH secret. Falling back to named secret: ${FALLBACK_SECRET_NAME}"
-            if aws secretsmanager describe-secret --secret-id "${FALLBACK_SECRET_NAME}" >/dev/null 2>&1; then
-              AUTH_SECRET_ARN="$(aws secretsmanager describe-secret --secret-id "${FALLBACK_SECRET_NAME}" --query ARN --output text)"
-            else
-              AUTH_SECRET_ARN="$(aws secretsmanager create-secret \
-                --name "${FALLBACK_SECRET_NAME}" \
-                --description "Auto-generated Next.js AUTH_SECRET for ${FALLBACK_SECRET_NAME}" \
-                --secret-string "{\"AUTH_SECRET\":\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(64))')\"}" \
-                --query ARN \
-                --output text)"
-            fi
-          fi
-
-          AUTH_SECRET_JSON="$(aws secretsmanager get-secret-value \
-            --secret-id "${AUTH_SECRET_ARN}" \
-            --query SecretString \
-            --output text 2>/dev/null || true)"
-
-          if [ -z "${AUTH_SECRET_JSON}" ] || [ "${AUTH_SECRET_JSON}" = "None" ]; then
-            echo "AUTH secret ARN is unreadable/missing. Falling back to named secret: ${FALLBACK_SECRET_NAME}"
-            if aws secretsmanager describe-secret --secret-id "${FALLBACK_SECRET_NAME}" >/dev/null 2>&1; then
-              AUTH_SECRET_ARN="$(aws secretsmanager describe-secret --secret-id "${FALLBACK_SECRET_NAME}" --query ARN --output text)"
-            else
-              AUTH_SECRET_ARN="$(aws secretsmanager create-secret \
-                --name "${FALLBACK_SECRET_NAME}" \
-                --description "Auto-generated Next.js AUTH_SECRET for ${FALLBACK_SECRET_NAME}" \
-                --secret-string "{\"AUTH_SECRET\":\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(64))')\"}" \
-                --query ARN \
-                --output text)"
-            fi
-            AUTH_SECRET_JSON="$(aws secretsmanager get-secret-value \
-              --secret-id "${AUTH_SECRET_ARN}" \
-              --query SecretString \
-              --output text)"
-          fi
-
-          AUTH_SECRET="$(echo "${AUTH_SECRET_JSON}" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("AUTH_SECRET",""))')"
-
-          if [ -z "${AUTH_SECRET}" ]; then
-            echo "AUTH_SECRET missing in secret payload. Generating and storing one."
-            AUTH_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(64))')"
-            aws secretsmanager put-secret-value \
-              --secret-id "${AUTH_SECRET_ARN}" \
-              --secret-string "{\"AUTH_SECRET\":\"${AUTH_SECRET}\"}" >/dev/null
-          fi
-
-          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nAUTH_SECRET=%s\n%s=%s' "${AUTH_SECRET}" "${{ env.APP_DATABASE_URL_KEY }}" "${DB_URL}")"
+          ENV_FILE_CONTENT="$(printf 'NODE_ENV=production\nAUTH_SECRET=%s\n%s=%s\nSUPABASE_URL=%s\nSUPABASE_KEY=%s\nSUPABASE_DB_URL=%s\nBACKBOARD_API_KEY=%s\nGOOGLE_MAPS_API_KEY=%s\nNEXT_PUBLIC_MAPBOX_TOKEN=%s' \
+            "${AUTH_SECRET}" \
+            "${{ env.APP_DATABASE_URL_KEY }}" "${DATABASE_URL_WEB}" \
+            "${SUPABASE_URL}" \
+            "${SUPABASE_KEY}" \
+            "${DATABASE_URL_WEB}" \
+            "${EFFECTIVE_BACKBOARD_API_KEY}" \
+            "${GOOGLE_MAPS_API_KEY}" \
+            "${NEXT_PUBLIC_MAPBOX_TOKEN}")"
 
           kubectl create secret generic "${{ env.K8S_ENV_SECRET_NAME }}" \
             -n "${{ env.NAMESPACE }}" \
