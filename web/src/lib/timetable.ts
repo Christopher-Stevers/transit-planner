@@ -1,4 +1,4 @@
-import type { Route } from "~/app/map/mock-data";
+import type { Route } from "~/app/map/transit-data";
 
 export interface TimetableEntry {
   stopName: string;

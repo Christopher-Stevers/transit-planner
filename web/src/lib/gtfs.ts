@@ -18,7 +18,7 @@
  * 06:00–24:00, daily).
  */
 
-import type { Route } from "~/app/map/mock-data";
+import type { Route } from "~/app/map/transit-data";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 

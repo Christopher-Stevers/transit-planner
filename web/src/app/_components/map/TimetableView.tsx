@@ -1,6 +1,6 @@
 "use client";
 
-import type { Route } from "~/app/map/mock-data";
+import type { Route } from "~/app/map/transit-data";
 import { computeTimetable, formatTime } from "~/lib/timetable";
 
 interface TimetableViewProps {

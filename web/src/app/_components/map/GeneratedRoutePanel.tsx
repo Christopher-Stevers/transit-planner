@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { GeneratedRoute } from "~/app/map/mock-data";
+import type { GeneratedRoute } from "~/app/map/transit-data";
 
 function StatBar({ value, max, color }: { value: number; max: number; color: string }) {
   return (

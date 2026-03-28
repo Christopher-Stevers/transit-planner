@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { ROUTES, BUS_ROUTES, type Route } from "~/app/map/mock-data";
+import { ROUTES, BUS_ROUTES, type Route } from "~/app/map/transit-data";
 import { computeTimetable, formatTime } from "~/lib/timetable";
 
 // ─── types ────────────────────────────────────────────────────────────────────

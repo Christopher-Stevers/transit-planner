@@ -1,5 +1,6 @@
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import DiscordProvider from "next-auth/providers/discord";
+import { trackUserSignIn } from "~/server/discord";
 
 
 /**
@@ -50,5 +51,15 @@ export const authConfig = {
         id: user.id,
       },
     }),
+  },
+  events: {
+    createUser: ({ user }) => {
+      void trackUserSignIn({ name: user.name, email: user.email, isNew: true });
+    },
+    signIn: ({ user, isNewUser }) => {
+      if (!isNewUser) {
+        void trackUserSignIn({ name: user.name, email: user.email, isNew: false });
+      }
+    },
   },
 } satisfies NextAuthConfig;

@@ -1,4 +1,4 @@
-import type { Route } from "~/app/map/mock-data";
+import type { Route } from "~/app/map/transit-data";
 
 export function pointInRing(px: number, py: number, ring: number[][]): boolean {
   let inside = false;
@@ -49,6 +49,7 @@ export function firstCoord(geom: GeoJSON.Geometry): [number, number] | null {
   return result;
 }
 
+
 /** Catmull-Rom spline interpolation for a single axis */
 function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
   return 0.5 * (
@@ -82,10 +83,7 @@ export function routeToGeoJSON(route: Route): GeoJSON.Feature<GeoJSON.LineString
   return {
     type: "Feature",
     properties: { id: route.id },
-    geometry: {
-      type: "LineString",
-      coordinates: smoothCoords(raw),
-    },
+    geometry: { type: "LineString", coordinates: smoothCoords(raw) },
   };
 }
 
