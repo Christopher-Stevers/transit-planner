@@ -45,6 +45,12 @@ if (enableUpgradeInsecureRequests) {
 const csp = cspDirectives.join("; ");
 
 const config = {
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "s.gravatar.com" },
+    ],
+  },
   devIndicators: false,
   turbopack: {
     root: path.resolve(__dirname, ".."),

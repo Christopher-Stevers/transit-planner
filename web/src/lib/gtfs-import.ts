@@ -10,7 +10,7 @@
  *   - Shapes are loaded when present; otherwise stop coords are used.
  */
 
-import type { Route } from "~/app/map/mock-data";
+import type { Route } from "~/app/map/transit-data";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 

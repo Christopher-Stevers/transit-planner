@@ -5,7 +5,16 @@
       "Bash(grep -l \"pointInRing\\\\|haversineKm\" /Users/fionafang/tiggy-ai/transit-planner/web/src/**/*.ts*)",
       "Bash(cat /Users/fionafang/tiggy-ai/transit-planner/web/src/app/api/auth/[...nextauth]/route.ts)",
       "Bash(grep -r \"from \"\"zod\"\"\\\\|from ''zod''\" /Users/fionafang/tiggy-ai/transit-planner/web/src --include=\"*.ts\" --include=\"*.tsx\" -l)",
-      "Bash(grep -r \"from \"\"zod\"\"\\\\|from ''zod''\" /Users/fionafang/tiggy-ai/transit-planner/web/src/app --include=\"*.ts\" --include=\"*.tsx\" -l)"
+      "Bash(grep -r \"from \"\"zod\"\"\\\\|from ''zod''\" /Users/fionafang/tiggy-ai/transit-planner/web/src/app --include=\"*.ts\" --include=\"*.tsx\" -l)",
+      "Bash(ogr2ogr -f GeoJSON /tmp/go_stations.json /Users/richardli/dev/transit-planner-1/go_train_stations_xslttransf/GO_Train_Stations.shp)",
+      "Read(//tmp/**)",
+      "Read(//Users/richardli/**)",
+      "Read(//Users/richardli/dev/transit-flow/**)",
+      "Bash(find /Users/richardli -maxdepth 4 -name *.tsx -path */transit-flow/*)",
+      "Read(//Users/**)",
+      "Read(//private/tmp/**)",
+      "Bash(grep -rn \"export.*function\\\\|export.*const\" /Users/richardli/dev/transit-planner-1/web/src/lib/gtfs*.ts)",
+      "Bash(find /Users/richardli/dev/transit-flow/client/public -name *.txt -o -name *.json -o -name *.geojson)"
     ]
   }
 }

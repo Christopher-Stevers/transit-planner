@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { runCouncil, type ExistingStop } from "~/server/council";
+import { trackCouncilRequest } from "~/server/discord";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -14,6 +15,12 @@ interface CouncilRequestBody {
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as CouncilRequestBody;
+
+  void trackCouncilRequest({
+    neighbourhoods: body.neighbourhoods ?? [],
+    lineType: body.line_type,
+    stationCount: body.stations?.length ?? 0,
+  });
 
   const stream = new ReadableStream({
     async start(controller) {

@@ -5,6 +5,7 @@ import {
   streamMessage,
   DEFAULT_SYSTEM_PROMPT,
 } from "~/server/backboard";
+import { trackChatMessage } from "~/server/discord";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -44,6 +45,8 @@ export async function POST(request: NextRequest) {
       model = "claude-haiku-4-5-20251001",
       maxTokens = 600,
     } = body;
+
+    void trackChatMessage({ message, model });
 
     if (!message) {
       return new Response(

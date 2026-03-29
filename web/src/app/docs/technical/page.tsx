@@ -340,7 +340,7 @@ export default function TechnicalDocsPage() {
           </h3>
           <ModuleCard
             name="Static Route Data"
-            path="src/app/map/mock-data.ts"
+            path="src/app/map/transit-data.ts"
             description="Base routes and stops pre-loaded into the editor. Contains the default Toronto transit network (~745KB). Used as the starting dataset."
             color="#d97706"
             bg="#fffbeb"

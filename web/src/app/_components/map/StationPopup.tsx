@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Route } from "~/app/map/mock-data";
+import type { Route } from "~/app/map/transit-data";
 import { useStationSummary } from "../useStationSummary";
 
 export function StationPopup({

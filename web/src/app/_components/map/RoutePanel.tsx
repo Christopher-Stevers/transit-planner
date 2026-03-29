@@ -1,7 +1,41 @@
 "use client";
 
 import { useState } from "react";
-import type { Route } from "~/app/map/mock-data";
+import type { Route } from "~/app/map/transit-data";
+
+function parseHeadway(frequency: string, servicePattern?: Route["servicePattern"]): number {
+  if (servicePattern?.headwayMinutes) return servicePattern.headwayMinutes;
+  const range = frequency.match(/(\d+)[–\-](\d+)/);
+  if (range) return (parseInt(range[1]!) + parseInt(range[2]!)) / 2;
+  const single = frequency.match(/(\d+)\s*min/i);
+  if (single) return parseInt(single[1]!);
+  return 30;
+}
+
+function haversineKm(a: [number, number], b: [number, number]): number {
+  const R = 6371;
+  const dLat = (b[1] - a[1]) * Math.PI / 180;
+  const dLon = (b[0] - a[0]) * Math.PI / 180;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a[1]*Math.PI/180)*Math.cos(b[1]*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+
+function scoreRoute(route: Route, allRoutes: Route[]) {
+  const headway = parseHeadway(route.frequency, route.servicePattern);
+  const frequency = Math.max(0, Math.min(100, Math.round(100 - headway * 2)));
+  const stopCount = route.stops.length;
+  const coverage = Math.min(100, stopCount * 3);
+  const otherStops = allRoutes.filter((r) => r.id !== route.id).flatMap((r) => r.stops.map((s) => s.coords));
+  const connectedCount = route.stops.filter((s) => otherStops.some((os) => haversineKm(s.coords, os) < 0.5)).length;
+  const connectivity = stopCount > 0 ? Math.min(100, Math.round((connectedCount / stopCount) * 100)) : 0;
+  let totalPath = 0;
+  for (let i = 1; i < route.stops.length; i++) totalPath += haversineKm(route.stops[i - 1]!.coords, route.stops[i]!.coords);
+  const straightLine = route.stops.length >= 2 ? haversineKm(route.stops[0]!.coords, route.stops[route.stops.length - 1]!.coords) : 0;
+  const efficiency = totalPath > 0 ? Math.min(100, Math.round((straightLine / totalPath) * 150)) : 50;
+  const overall = Math.round((frequency + coverage + connectivity + efficiency) / 4);
+  const grade = overall >= 90 ? "A" : overall >= 75 ? "B" : overall >= 60 ? "C" : overall >= 45 ? "D" : "F";
+  return { frequency, coverage, connectivity, efficiency, overall, grade };
+}
 
 export function RoutePanel({
   route,
@@ -10,7 +44,9 @@ export function RoutePanel({
   onDeleteStop,
   onDeleteLine,
   onSnapToRoads,
+  onAddPortal,
   onClose,
+  allRoutes = [],
 }: {
   route: Route;
   selectedStop: string | null;
@@ -19,10 +55,14 @@ export function RoutePanel({
   onDeleteLine?: () => void;
   /** Called when the user requests road-snapping. Resolves when done, throws on error. */
   onSnapToRoads?: () => Promise<void>;
+  /** Called when the user wants to enter portal placement mode. */
+  onAddPortal?: () => void;
   onClose: () => void;
+  allRoutes?: Route[];
 }) {
   const [snapState, setSnapState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [snapError, setSnapError] = useState<string | null>(null);
+  const score = allRoutes.length > 0 ? scoreRoute(route, allRoutes) : null;
   const rawPop = selectedStop ? stationPopulations.get(selectedStop) : undefined;
   const popServed = rawPop !== undefined ? Math.max(2314, rawPop) : undefined;
   const allStops = route.stops;
@@ -127,6 +167,21 @@ export function RoutePanel({
         </div>
       )}
 
+      {onAddPortal && (
+        <div className="mx-5 mt-3">
+          <button
+            onClick={onAddPortal}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 py-2 text-xs font-medium text-stone-500 hover:border-stone-400 hover:text-stone-800 transition-colors"
+          >
+            <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 9 C2 5 4 3 6 3 C8 3 10 5 10 9"/>
+              <path d="M4 9 C4 6.5 5 5.5 6 5.5 C7 5.5 8 6.5 8 9"/>
+            </svg>
+            Add portal
+          </button>
+        </div>
+      )}
+
       {onDeleteLine && (
         <div className="mx-5 mt-4">
           <button
@@ -138,6 +193,36 @@ export function RoutePanel({
             </svg>
             Delete line
           </button>
+        </div>
+      )}
+
+      {score && (
+        <div className="border-t border-stone-100 px-5 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">Route Score</p>
+            <div className="flex items-center gap-2">
+              <span className={`text-lg font-black leading-none ${score.grade === "A" ? "text-emerald-600" : score.grade === "B" ? "text-sky-600" : score.grade === "C" ? "text-amber-600" : "text-rose-600"}`}>{score.grade}</span>
+              <span className="text-sm font-bold text-stone-700">{score.overall}<span className="text-[10px] font-normal text-stone-400">/100</span></span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {([
+              ["Frequency", score.frequency, `${Math.round(parseHeadway(route.frequency, route.servicePattern))} min`],
+              ["Coverage", score.coverage, `${route.stops.length} stops`],
+              ["Connectivity", score.connectivity, "transfers"],
+              ["Efficiency", score.efficiency, "alignment"],
+            ] as [string, number, string][]).map(([label, val, hint]) => (
+              <div key={label}>
+                <div className="flex justify-between items-baseline mb-0.5">
+                  <span className="text-[11px] text-stone-500">{label} <span className="text-[9px] text-stone-300">{hint}</span></span>
+                  <span className="text-[11px] font-semibold text-stone-700">{val}</span>
+                </div>
+                <div className="h-1 w-full rounded-full bg-stone-100 overflow-hidden">
+                  <div className="h-full rounded-full bg-stone-400" style={{ width: `${val}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
