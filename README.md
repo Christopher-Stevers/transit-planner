@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="web/public/logo.png" alt="" width="150" height="150">
-
 # Transit Planner
 
 _Design smarter cities, one route at a time._
