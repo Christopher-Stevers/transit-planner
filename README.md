@@ -4,9 +4,9 @@
 
 _Design smarter cities, one route at a time._
 
-</div>
-
 ![66FE219B-B97C-4352-A529-20B388656D78_1_201_a](https://github.com/user-attachments/assets/88ebaea1-07ac-419e-8425-58b83fd68a3e)
+
+</div>
 
 ---
 
