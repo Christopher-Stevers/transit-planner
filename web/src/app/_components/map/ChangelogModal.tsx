@@ -12,6 +12,46 @@ type Version = {
 
 const VERSIONS: Version[] = [
   {
+    version: "v0.5",
+    date: "04/03/2026",
+    headline: "Transit deserts. Custom overlays.",
+    subline: "Better vehicle info.",
+    entries: [
+      {
+        section: "Transit desert finder",
+        items: [
+          "New map layer: Transit Deserts — red heat shows high-population areas with poor transit access",
+          "Composite access score per population cell: combines frequency, mode weight, connectivity, and walking distance",
+          "Subway and LRT weighted higher than buses — reflects reliability and capacity differences",
+          "Drawing a new route updates the desert map in real time",
+        ],
+      },
+      {
+        section: "Custom overlay",
+        items: [
+          "Import KML, KMZ, or SHP files as a temporary comparison overlay",
+          "Overlay renders in orange on top of the map for visual comparison",
+          "Toggle via Map Layers → Custom overlay… in Settings",
+        ],
+      },
+      {
+        section: "Live vehicles",
+        items: [
+          "Vehicle popup now shows full route name (looked up from GTFS routes)",
+          "Compass heading derived from bearing (e.g. Northbound, Southwest)",
+          "Trip ID shown in popup (last 2 segments for readability)",
+        ],
+      },
+      {
+        section: "Bug fixes",
+        items: [
+          "Fixed feedback modal layout",
+          "Removed auth button from production UI",
+        ],
+      },
+    ],
+  },
+  {
     version: "v0.4",
     date: "03/27/2026",
     headline: "Sharing. Tools panel.",
