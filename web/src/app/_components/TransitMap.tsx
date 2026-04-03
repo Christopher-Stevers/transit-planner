@@ -4,7 +4,7 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import mapboxgl from "mapbox-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { haversineKm, computeStationPopulations, type PopRow } from "~/app/map/geo-utils";
+import { haversineKm, computeStationPopulations } from "~/app/map/geo-utils";
 import {
   ROUTES,
   BUS_ROUTES,
@@ -25,10 +25,17 @@ import { FeedbackModal } from "./map/FeedbackModal";
 import { ChatPanel, type ParsedRoute, type ToolCallEvent } from "./ChatPanel";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import Image from "next/image";
+import { useOverlay } from "./map/hooks/useOverlay";
+import { useTraffic } from "./map/hooks/useTraffic";
+import { useHeatmap } from "./map/hooks/useHeatmap";
+import { useLiveVehicles } from "./map/hooks/useLiveVehicles";
+import { useTransitDesert } from "./map/hooks/useTransitDesert";
+import { useIsochrone } from "./map/hooks/useIsochrone";
 
 type DrawMode = "normal" | "select" | "boundary";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+
 const TORONTO: [number, number] = [-79.3832, 43.6532];
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -136,15 +143,9 @@ export function TransitMap() {
   const [generatedRoute, setGeneratedRoute] = useState<GeneratedRoute | null>(null);
   const [selectedGeneratedStop, setSelectedGeneratedStop] = useState<string | null>(null);
   const [disabledStops, setDisabledStops] = useState<Set<string>>(new Set());
-  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showCanadaPop, setShowCanadaPop] = useState(false);
   const [isBirdsEye, setIsBirdsEye] = useState(false);
-  const [showTraffic, setShowTraffic] = useState(false);
-  const [trafficLoading, setTrafficLoading] = useState(false);
-  const [popLoading, setPopLoading] = useState(true);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [populationGeoJSON, setPopulationGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null);
-  const [trafficGeoJSON, setTrafficGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null);
-  const [popRawData, setPopRawData] = useState<PopRow[]>([]);
   const [drawMode, setDrawMode] = useState<DrawMode>("normal");
   const [councilOpen, setCouncilOpen] = useState(false);
   const [councilHasRun, setCouncilHasRun] = useState(false);
@@ -180,6 +181,13 @@ export function TransitMap() {
     context: "export" | "import";
   } | null>(null);
 
+  const { showTraffic, trafficLoading, trafficGeoJSON, setShowTraffic } = useTraffic(mapRef, mapLoaded);
+  const { showHeatmap, popLoading, setShowHeatmap, popRawData } = useHeatmap(mapRef, mapLoaded);
+  const { customOverlay, customOverlayName, handleOverlayImport, clearOverlay } = useOverlay(mapRef, mapLoaded);
+  const { vehiclesUpdatedAt, showLiveVehicles, setShowLiveVehicles } = useLiveVehicles(mapRef, mapLoaded);
+  const { showTransitDesert, setShowTransitDesert, isComputing: desertComputing } = useTransitDesert(mapRef, mapLoaded, popRawData, routes);
+  const { handleIsochroneOriginPicking, isoMode, setIsoMode, pickingIsochroneOrigin, setIsochroneMinutes, setIsochroneOrigin, isochroneOrigin, isochroneMinutes, setPickingIsochroneOrigin} = useIsochrone(mapRef, mapLoaded, TOKEN);
+
   // Voronoi: assign each population point to its nearest station
   // Cutoff: 5 km for subway/LRT, 1 km for streetcar/bus
   const stationPopulations = useMemo(() => {
@@ -203,17 +211,11 @@ export function TransitMap() {
   const [showNewLineModal, setShowNewLineModal] = useState(false);
   const [showCoverageZones, setShowCoverageZones] = useState(false);
   const [showServiceHeatmap, setShowServiceHeatmap] = useState(false);
-  const [showLiveVehicles, setShowLiveVehicles] = useState(false);
-  const [vehiclesUpdatedAt, setVehiclesUpdatedAt] = useState<number | null>(null);
-  const [isochroneOrigin, setIsochroneOrigin] = useState<[number, number] | null>(null); // [lng, lat]
-  const [isochroneMinutes, setIsochroneMinutes] = useState(30);
-  const [isoMode, setIsoMode] = useState<"walking" | "cycling" | "driving">("walking");
   const [simState, setSimState] = useState<{ hour: number; activeIds: string[] } | null>(null);
   const [linesHeight, setLinesHeight] = useState(() =>
     typeof window !== "undefined" ? Math.floor((window.innerHeight - 60) * 0.55) : 380
   );
   const linesHeightRef = useRef(linesHeight);
-  const [pickingIsochroneOrigin, setPickingIsochroneOrigin] = useState(false);
   const [showCatchment, setShowCatchment] = useState(false);
   const [catchmentRadius, setCatchmentRadius] = useState(800);
   const [showDisruption, setShowDisruption] = useState(false);
@@ -255,7 +257,6 @@ export function TransitMap() {
   const prevHiddenRef = useRef<Set<string>>(new Set(BUS_ROUTES.map((r) => r.id)));
 
   // Refs for use inside map event callbacks (avoid stale closure)
-  const pickingIsochroneOriginRef = useRef(false);
   const drawModeRef = useRef<DrawMode>("normal");
   const selectedNeighbourhoodsRef = useRef<Set<string>>(new Set());
   const selectedStationsRef = useRef<Set<string>>(new Set());
@@ -282,6 +283,7 @@ export function TransitMap() {
   const onToolCallRef = useRef<(evt: ToolCallEvent) => void>(() => { /* set below */ });
   const councilHasRunRef = useRef(false);
 
+
   useEffect(() => {
     councilHasRunRef.current = councilHasRun;
   }, [councilHasRun]);
@@ -289,12 +291,6 @@ export function TransitMap() {
   useEffect(() => {
     drawModeRef.current = drawMode;
   }, [drawMode]);
-
-  useEffect(() => {
-    pickingIsochroneOriginRef.current = pickingIsochroneOrigin;
-    const canvas = mapRef.current?.getCanvas();
-    if (canvas) canvas.style.cursor = pickingIsochroneOrigin ? "crosshair" : "";
-  }, [pickingIsochroneOrigin]);
 
   useEffect(() => {
     selectedNeighbourhoodsRef.current = selectedNeighbourhoods;
@@ -378,9 +374,11 @@ export function TransitMap() {
   }, [hasUnsaved]);
 
   // Dark mode — sync to <html> class and persist
+  const darkModeInitRef = useRef(true); // skip localStorage write on first render (before restore effect reads system pref)
   const darkModeMapRef = useRef(true); // skip first map style switch (map not ready yet)
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
+    if (darkModeInitRef.current) { darkModeInitRef.current = false; return; }
     localStorage.setItem("darkMode", darkMode ? "1" : "0");
   }, [darkMode]);
 
@@ -434,6 +432,14 @@ export function TransitMap() {
     const stored = localStorage.getItem("darkMode");
     setDarkMode(stored !== null ? stored === "1" : window.matchMedia("(prefers-color-scheme: dark)").matches);
     setHighContrast(get("highContrast"));
+
+    // Follow OS theme changes in real time when no manual preference is stored
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemThemeChange = (e: MediaQueryListEvent) => {
+      if (localStorage.getItem("darkMode") === null) setDarkMode(e.matches);
+    };
+    mq.addEventListener("change", onSystemThemeChange);
+    return () => mq.removeEventListener("change", onSystemThemeChange);
   }, []);
 
   // Persist toggles to localStorage
@@ -442,6 +448,13 @@ export function TransitMap() {
   useEffect(() => { localStorage.setItem("t_experimentalFeatures", experimentalFeatures ? "1" : "0"); }, [experimentalFeatures]);
   useEffect(() => { localStorage.setItem("t_advancedMode", advancedMode ? "1" : "0"); }, [advancedMode]);
   useEffect(() => { localStorage.setItem("t_imperial", imperial ? "1" : "0"); }, [imperial]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const existing = map._controls.find((c: unknown) => c instanceof mapboxgl.ScaleControl);
+    if (existing) map.removeControl(existing as mapboxgl.ScaleControl);
+    map.addControl(new mapboxgl.ScaleControl({ unit: imperial ? "imperial" : "metric" }), "bottom-left");
+  }, [imperial]);
   useEffect(() => { localStorage.setItem("t_showCoverageZones", showCoverageZones ? "1" : "0"); }, [showCoverageZones]);
   useEffect(() => { localStorage.setItem("t_showServiceHeatmap", showServiceHeatmap ? "1" : "0"); }, [showServiceHeatmap]);
 
@@ -1171,90 +1184,6 @@ export function TransitMap() {
       .catch(console.error);
   }, []);
 
-  // ── fetch population data from Supabase via API
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/population")
-      .then((res) => res.json())
-      .then((rows: { latitude: number; longitude: number; population: number; area: number }[]) => {
-        if (cancelled) return;
-        if (!Array.isArray(rows)) return;
-        // Compute population density (pop/area), then log-normalize to 0–1
-        // Log scale is essential because density spans several orders of magnitude
-        const densities = rows.map((r) => (r.area > 0 ? r.population / r.area : 0));
-        const logDensities = densities.map((d) => (d > 0 ? Math.log1p(d) : 0));
-        const maxLog = Math.max(1, ...logDensities);
-
-        const features: GeoJSON.Feature<GeoJSON.Point>[] = rows.map((r, i) => ({
-          type: "Feature",
-          properties: {
-            weight: logDensities[i]! / maxLog,
-            density: densities[i]!,
-          },
-          geometry: { type: "Point", coordinates: [r.longitude, r.latitude] },
-        }));
-
-        const fc: GeoJSON.FeatureCollection = { type: "FeatureCollection", features };
-        setPopulationGeoJSON(fc);
-        setPopRawData(rows);
-
-        // Update the map source if it already exists
-        const map = mapRef.current;
-        if (map) {
-          const src = map.getSource("population") as mapboxgl.GeoJSONSource | undefined;
-          if (src) src.setData(fc);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch population data:", err))
-      .finally(() => { if (!cancelled) setPopLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  // ── fetch traffic data from Supabase via API
-  useEffect(() => {
-    let cancelled = false;
-    setTrafficLoading(true);
-    fetch("/api/traffic")
-      .then((res) => res.json())
-      .then((fc: GeoJSON.FeatureCollection) => {
-        if (cancelled) return;
-        console.log("[traffic] API payload", {
-          type: fc?.type,
-          featureCount: fc?.features?.length ?? 0,
-          firstFeature: fc?.features?.[0] ?? null,
-        });
-        setTrafficGeoJSON(fc);
-        const map = mapRef.current;
-        if (map && map.isStyleLoaded()) {
-          const src = map.getSource("traffic") as mapboxgl.GeoJSONSource | undefined;
-          if (src) {
-            src.setData(fc);
-            console.log("[traffic] setData from fetch", {
-              hasSource: true,
-              featureCount: fc?.features?.length ?? 0,
-              layerExists: !!map.getLayer("traffic-lines"),
-              layerVisibility: map.getLayer("traffic-lines")
-                ? map.getLayoutProperty("traffic-lines", "visibility")
-                : "missing",
-            });
-          } else {
-            console.log("[traffic] source missing during fetch setData");
-          }
-        } else {
-          console.log("[traffic] map/style not ready during fetch setData", {
-            hasMap: !!map,
-            styleLoaded: map ? map.isStyleLoaded() : false,
-          });
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to fetch traffic data:", err);
-      })
-      .finally(() => {
-        if (!cancelled) setTrafficLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
 
   // ── init map
   useEffect(() => {
@@ -1330,7 +1259,7 @@ export function TransitMap() {
     });
 
     // NavigationControl replaced by custom React panel below
-    map.addControl(new mapboxgl.ScaleControl({ unit: "metric" }), "bottom-left");
+    map.addControl(new mapboxgl.ScaleControl({ unit: imperial ? "imperial" : "metric" }), "bottom-left");
 
     map.on("load", () => {
       const firstLabelLayer = map
@@ -1561,6 +1490,41 @@ export function TransitMap() {
         firstLabelLayer,
       );
 
+      // Canada population density — served as XYZ vector tiles from PMTiles file
+      map.addSource("canada-pop", {
+        type: "vector",
+        tiles: [`${window.location.origin}/api/canada-pop-tiles/{z}/{x}/{y}`],
+        minzoom: 2,
+        maxzoom: 12,
+      });
+      map.addLayer(
+        {
+          id: "canada-pop-heatmap",
+          type: "heatmap",
+          source: "canada-pop",
+          "source-layer": "canada_pop",
+          layout: { visibility: "none" },
+          paint: {
+            // d = raw density (people/km²). Use log1p approximation via stops.
+            // d=1→~0.05, d=10→~0.2, d=100→~0.5, d=1000→~0.8, d=10000→1
+            "heatmap-weight": ["interpolate", ["linear"], ["get", "d"], 0, 0, 10, 0.2, 100, 0.5, 1000, 0.8, 10000, 1],
+            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 2, 0.15, 5, 0.4, 8, 1.0, 11, 2.0, 13, 3.0],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 2, 3, 5, 8, 8, 25, 10, 50, 12, 80],
+            "heatmap-color": [
+              "interpolate", ["linear"], ["heatmap-density"],
+              0,    "rgba(0,0,0,0)",
+              0.1,  "rgba(0,104,55,0.25)",
+              0.25, "rgba(102,189,99,0.6)",
+              0.45, "rgba(255,255,51,0.85)",
+              0.65, "rgba(253,141,60,0.95)",
+              1,    "rgba(215,25,28,1)",
+            ],
+            "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 2, 0.8, 9, 0.75, 12, 0.5, 14, 0],
+          },
+        },
+        firstLabelLayer,
+      );
+
       // Traffic lines — initialize with empty data, then sync via effect
       map.addSource("traffic", {
         type: "geojson",
@@ -1746,14 +1710,7 @@ export function TransitMap() {
 
       // Map-level click: add station to selected line, or close popup
       map.on("click", (e) => {
-        // Handle isochrone origin picking
-        if (pickingIsochroneOriginRef.current) {
-          pickingIsochroneOriginRef.current = false;
-          setPickingIsochroneOrigin(false);
-          setIsochroneOrigin([e.lngLat.lng, e.lngLat.lat]);
-          map.getCanvas().style.cursor = "";
-          return;
-        }
+        handleIsochroneOriginPicking(map, e);
 
         // Measure tool intercepts first
         if (measureModeRef.current) {
@@ -1910,62 +1867,17 @@ export function TransitMap() {
     };
   }, []);
 
-  // ── keep population source in sync; re-adds layers if wiped by style switch
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded || !populationGeoJSON) return;
-    const firstLabelLayer = map.getStyle()?.layers?.find((l) => l.type === "symbol" && (l.layout as Record<string, unknown>)?.["text-field"])?.id;
-    if (!map.getSource("population")) {
-      map.addSource("population", { type: "geojson", data: populationGeoJSON });
-      map.addLayer({ id: "population-heatmap", type: "heatmap", source: "population", paint: { "heatmap-weight": ["interpolate", ["linear"], ["get", "weight"], 0, 0, 1, 1], "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 10, 0.4, 13, 0.8], "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 10, 10, 12, 28, 13, 50], "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(0,0,0,0)", 0.2, "rgba(0,104,55,0.15)", 0.4, "rgba(102,189,99,0.5)", 0.6, "rgba(255,255,51,0.8)", 0.8, "rgba(253,141,60,0.9)", 1, "rgba(215,25,28,1)"], "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0, 10, 0.75, 13, 0.3, 15, 0] } }, firstLabelLayer);
-      map.addLayer({ id: "population-points", type: "circle", source: "population", minzoom: 12, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 15, 2, 17, 4, 19, 8], "circle-color": ["interpolate", ["linear"], ["get", "weight"], 0, "rgb(0,104,55)", 0.3, "rgb(102,189,99)", 0.5, "rgb(255,255,51)", 0.7, "rgb(253,141,60)", 0.85, "rgb(253,141,60)", 1, "rgb(215,25,28)"], "circle-opacity": ["interpolate", ["linear"], ["zoom"], 15, 0, 17, 0.75], "circle-stroke-width": 0.5, "circle-stroke-color": "rgba(255,255,255,0.5)" } }, firstLabelLayer);
-      return; // data already set via addSource
-    }
-    (map.getSource("population") as mapboxgl.GeoJSONSource).setData(populationGeoJSON);
-  }, [populationGeoJSON, mapLoaded]);
 
-  // ── keep traffic source in sync; re-adds layer if wiped by style switch
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded || !trafficGeoJSON) return;
-    const firstLabelLayer = map.getStyle()?.layers?.find((l) => l.type === "symbol" && (l.layout as Record<string, unknown>)?.["text-field"])?.id;
-    if (!map.getSource("traffic")) {
-      map.addSource("traffic", { type: "geojson", data: trafficGeoJSON });
-      map.addLayer({ id: "traffic-lines", type: "line", source: "traffic", layout: { "line-join": "round", "line-cap": "round", visibility: showTraffic ? "visible" : "none" }, paint: { "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 14, 4], "line-color": ["case", ["!=", ["get", "avg_traffic"], null], ["match", ["get", "traffic_color"], "green", "#22c55e", "yellow", "#f59e0b", "red", "#ef4444", "#22c55e"], "#22c55e"], "line-opacity": 0.5 } }, firstLabelLayer);
-      return;
-    }
-    (map.getSource("traffic") as mapboxgl.GeoJSONSource).setData(trafficGeoJSON);
-  }, [trafficGeoJSON, mapLoaded]);
 
-  // ── population visibility toggle (heatmap + points)
+  // ── Canada population density visibility toggle (PMTiles — no fetch needed)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
-    const vis = showHeatmap ? "visible" : "none";
-    if (map.getLayer("population-heatmap")) {
-      map.setLayoutProperty("population-heatmap", "visibility", vis);
+    if (map.getLayer("canada-pop-heatmap")) {
+      map.setLayoutProperty("canada-pop-heatmap", "visibility", showCanadaPop ? "visible" : "none");
     }
-    if (map.getLayer("population-points")) {
-      map.setLayoutProperty("population-points", "visibility", vis);
-    }
-  }, [showHeatmap, mapLoaded]);
+  }, [showCanadaPop, mapLoaded]);
 
-  // ── traffic lines visibility toggle
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded) return;
-    if (map.getLayer("traffic-lines")) {
-      map.setLayoutProperty("traffic-lines", "visibility", showTraffic ? "visible" : "none");
-      console.log("[traffic] toggle visibility", {
-        showTraffic,
-        appliedVisibility: map.getLayoutProperty("traffic-lines", "visibility"),
-        hasSource: !!map.getSource("traffic"),
-        sourceFeatureCount: trafficGeoJSON?.features?.length ?? 0,
-      });
-    } else {
-      console.log("[traffic] toggle attempted but layer missing", { showTraffic });
-    }
-  }, [showTraffic, mapLoaded, trafficGeoJSON]);
 
   // ── per-route visibility toggle
   useEffect(() => {
@@ -2084,42 +1996,6 @@ export function TransitMap() {
     );
   }, [showServiceHeatmap, routes, mapLoaded]);
 
-  // ── isochrone overlay ────────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded) return;
-    const SRC = "isochrone-source";
-    const LAYERS = ["isochrone-fill-60", "isochrone-fill-45", "isochrone-fill-30", "isochrone-fill-15", "isochrone-outline"];
-    const cleanup = () => {
-      LAYERS.forEach((l) => { if (map.getLayer(l)) map.removeLayer(l); });
-      if (map.getSource(SRC)) map.removeSource(SRC);
-    };
-    cleanup();
-    if (!isochroneOrigin || !TOKEN) return;
-    const [lng, lat] = isochroneOrigin;
-    const mins = [15, 30, 45, 60].filter((m) => m <= isochroneMinutes);
-    const url = `https://api.mapbox.com/isochrone/v1/mapbox/${isoMode}/${lng},${lat}?contours_minutes=${mins.join(",")}&polygons=true&access_token=${TOKEN}`;
-    fetch(url)
-      .then((r) => r.json())
-      .then((geojson) => {
-        if (!map.getSource(SRC)) {
-          map.addSource(SRC, { type: "geojson", data: geojson });
-        } else {
-          (map.getSource(SRC) as mapboxgl.GeoJSONSource).setData(geojson);
-          return;
-        }
-        const colors: Record<number, string> = { 15: "#10b981", 30: "#f59e0b", 45: "#ef4444", 60: "#7c3aed" };
-        const beforeId = map.getLayer("neighbourhood-fill") ? "neighbourhood-fill" : undefined;
-        // Draw largest to smallest so they stack correctly
-        [...mins].reverse().forEach((m) => {
-          map.addLayer({ id: `isochrone-fill-${m}`, type: "fill", source: SRC, filter: ["==", ["get", "contour"], m], paint: { "fill-color": colors[m] ?? "#888", "fill-opacity": 0.12 } }, beforeId);
-        });
-        map.addLayer({ id: "isochrone-outline", type: "line", source: SRC, paint: { "line-color": ["get", "color"], "line-width": 1.5, "line-opacity": 0.6 } }, beforeId);
-      })
-      .catch((e) => console.warn("[isochrone] fetch failed", e));
-    return cleanup;
-  }, [isochroneOrigin, isochroneMinutes, isoMode, mapLoaded]);
-
   // ── catchment circles overlay ─────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -2184,74 +2060,7 @@ export function TransitMap() {
     return cleanup;
   }, [measurePoints, mapLoaded]);
 
-  // ── live vehicles layer ────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded) return;
-    const SRC = "live-vehicles-src", LAYER = "live-vehicles-layer";
-    const cleanup = () => {
-      if (map.getLayer(LAYER)) map.removeLayer(LAYER);
-      if (map.getSource(SRC)) map.removeSource(SRC);
-    };
-    if (!showLiveVehicles) { cleanup(); return; }
-
-    const emptyFC: GeoJSON.FeatureCollection<GeoJSON.Point> = { type: "FeatureCollection", features: [] };
-    map.addSource(SRC, { type: "geojson", data: emptyFC });
-    map.addLayer({
-      id: LAYER, type: "circle", source: SRC,
-      paint: {
-        "circle-radius": 6,
-        "circle-color": "#ef4444",
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 1.5,
-        "circle-opacity": 0.9,
-      },
-    });
-
-    map.on("mouseenter", LAYER, () => { map.getCanvas().style.cursor = "pointer"; });
-    map.on("mouseleave", LAYER, () => { map.getCanvas().style.cursor = ""; });
-
-    let popup: mapboxgl.Popup | null = null;
-    const onClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
-      const f = e.features?.[0];
-      if (!f) return;
-      const { routeId, label } = f.properties as { routeId: string; label: string };
-      const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
-      popup?.remove();
-      popup = new mapboxgl.Popup({ closeButton: true, closeOnClick: true, offset: 10, className: "vehicle-popup" })
-        .setLngLat(coords)
-        .setHTML(
-          `<div style="font-family:sans-serif;font-size:12px;line-height:1.6;padding:2px 4px">` +
-          `<div style="font-weight:700;font-size:13px">Route ${routeId || "—"}</div>` +
-          `<div style="color:#666">Vehicle #${label || "—"}</div>` +
-          `</div>`
-        )
-        .addTo(map);
-    };
-    map.on("click", LAYER, onClick);
-
-    const fetchAndUpdate = async () => {
-      try {
-        const res = await fetch("/api/vehicles");
-        if (!res.ok) return;
-        const { vehicles } = await res.json() as { vehicles: Array<{ id: string; lat: number; lng: number; routeId?: string; label?: string }> };
-        const fc: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-          type: "FeatureCollection",
-          features: vehicles.map((v) => ({
-            type: "Feature",
-            properties: { id: v.id, routeId: v.routeId ?? "", label: v.label ?? "" },
-            geometry: { type: "Point", coordinates: [v.lng, v.lat] },
-          })),
-        };
-        (map.getSource(SRC) as mapboxgl.GeoJSONSource | undefined)?.setData(fc);
-        setVehiclesUpdatedAt(Date.now());
-      } catch { /* network error — silently skip */ }
-    };
-
-    void fetchAndUpdate();
-    const interval = setInterval(() => void fetchAndUpdate(), 15_000);
-    return () => { clearInterval(interval); popup?.remove(); map.off("click", LAYER, onClick); cleanup(); };
-  }, [showLiveVehicles, mapLoaded]);
+  
 
   // ── generated route layer (re-renders when route or stops change)
   useEffect(() => {
@@ -3744,36 +3553,67 @@ export function TransitMap() {
               <div className="border-b border-stone-100 py-3">
                 <p className="px-4 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-stone-300">Map layers</p>
                 {([
-                  ["Coverage zones", showCoverageZones, () => setShowCoverageZones((v) => !v), "sky"] as const,
-                  ["Service heatmap", showServiceHeatmap, () => setShowServiceHeatmap((v) => !v), "orange"] as const,
-                  ["Live vehicles", showLiveVehicles, () => setShowLiveVehicles((v) => !v), "emerald"] as const,
-                  ["Catchment circles", showCatchment, () => setShowCatchment((v) => !v), "emerald"] as const,
-                  ["Disruption zones", showDisruption, () => setShowDisruption((v) => !v), "rose"] as const,
-                  ["Measure distance", measureMode, () => setMeasureMode((v) => !v), "amber"] as const,
-                ] as [string, boolean, () => void, string][]).map(([label, on, toggle]) => (
+                  ["Canada pop density", showCanadaPop, () => setShowCanadaPop((v) => !v), "amber", true] as const,
+                  ["Coverage zones", showCoverageZones, () => setShowCoverageZones((v) => !v), "sky", false] as const,
+                  ["Service heatmap", showServiceHeatmap, () => setShowServiceHeatmap((v) => !v), "orange", false] as const,
+                  ["Live vehicles", showLiveVehicles, () => setShowLiveVehicles((v) => !v), "emerald", false] as const,
+                  ["Transit deserts", showTransitDesert, () => setShowTransitDesert((v) => !v), "rose", false] as const,
+                  ["Catchment circles", showCatchment, () => setShowCatchment((v) => !v), "emerald", false] as const,
+                  ["Disruption zones", showDisruption, () => setShowDisruption((v) => !v), "rose", false] as const,
+                  ["Measure distance", measureMode, () => setMeasureMode((v) => !v), "amber", false] as const,
+                ] as [string, boolean, () => void, string, boolean][]).map(([label, on, toggle, , beta]) => (
                   <button key={label} onClick={toggle} className="flex w-full items-center justify-between px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition-colors">
-                    <span>{label}</span>
+                    <span className="flex items-center gap-1.5">
+                      {label}
+                      {beta && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 uppercase tracking-wide">beta</span>}
+                    </span>
                     <span className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${highContrast ? (on ? "bg-yellow-400" : "bg-black ring-2 ring-white") : (on ? "bg-stone-700" : "bg-stone-200")}`}>
-                      <span className={`absolute top-0.5 h-3 w-3 rounded-full shadow transition-transform ${highContrast ? (on ? "bg-black translate-x-3.5" : "bg-white translate-x-0.5") : (on ? "bg-white translate-x-3.5" : "bg-white translate-x-0.5")}`} />
+                      <span className={`absolute top-0.5 h-3 w-3 rounded-full shadow transition-transform ${highContrast ? (on ? "bg-black translate-x-3.5" : "bg-[#ffffff] translate-x-0.5") : (on ? "bg-white translate-x-3.5" : "bg-white translate-x-0.5")}`} />
                     </span>
                   </button>
                 ))}
+                {desertComputing && (
+                  <p className="px-4 py-1 text-[11px] text-rose-400 animate-pulse">Computing desert scores…</p>
+                )}
+                {/* Custom overlay — file load action */}
+                <button
+                  onClick={() => customOverlay ? (clearOverlay()) : handleOverlayImport()}
+                  className="flex w-full items-center justify-between px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition-colors"
+                >
+                  <span className={customOverlay ? "text-orange-500" : ""}>
+                    {customOverlay
+                      ? (customOverlayName.length > 20 ? customOverlayName.slice(0, 19) + "…" : customOverlayName)
+                      : "Custom overlay…"}
+                  </span>
+                  {customOverlay ? (
+                    <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0 text-orange-400" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 2l12 12M14 2L2 14"/>
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0 text-stone-400" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 2v8M5 7l3 3 3-3"/><rect x="2" y="11" width="12" height="3" rx="1" fill="none"/>
+                    </svg>
+                  )}
+                </button>
               </div>
 
               {/* App settings */}
               <div className="border-b border-stone-100 py-1">
                 <p className="px-4 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-stone-300">App</p>
                 {([
-                  ["Dark mode", darkMode, () => setDarkMode((v) => !v)],
-                  ["High contrast", highContrast, () => setHighContrast((v) => !v)],
-                  ["Imperial units", imperial, () => setImperial((v) => !v)],
-                  ["Tools panel", advancedMode, () => { const next = !advancedMode; setAdvancedMode(next); setExperimentalFeatures(next); }],
-                  ...(experimentalFeatures ? [["GO Transit", showGoTrain, () => setShowGoTrain((v) => !v)] as [string, boolean, () => void]] : []),
-                ] as [string, boolean, () => void][]).map(([label, on, toggle]) => (
+                  ["Dark mode", darkMode, () => setDarkMode((v) => !v), false],
+                  ["High contrast", highContrast, () => setHighContrast((v) => !v), false],
+                  ["Imperial units", imperial, () => setImperial((v) => !v), false],
+                  ["Tools panel", advancedMode, () => { const next = !advancedMode; setAdvancedMode(next); setExperimentalFeatures(next); }, false],
+                  ["GO Transit", showGoTrain, () => setShowGoTrain((v) => !v), true],
+                ] as [string, boolean, () => void, boolean][]).map(([label, on, toggle, beta]) => (
                   <button key={label} onClick={toggle} className="flex w-full items-center justify-between px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition-colors">
-                    <span>{label}</span>
+                    <span className="flex items-center gap-1.5">
+                      {label}
+                      {beta && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 uppercase tracking-wide">beta</span>}
+                    </span>
                     <span className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${highContrast ? (on ? "bg-yellow-400" : "bg-black ring-2 ring-white") : (on ? "bg-stone-700" : "bg-stone-200")}`}>
-                      <span className={`absolute top-0.5 h-3 w-3 rounded-full shadow transition-transform ${highContrast ? (on ? "bg-black translate-x-3.5" : "bg-white translate-x-0.5") : (on ? "bg-white translate-x-3.5" : "bg-white translate-x-0.5")}`} />
+                      <span className={`absolute top-0.5 h-3 w-3 rounded-full shadow transition-transform ${highContrast ? (on ? "bg-black translate-x-3.5" : "bg-[#ffffff] translate-x-0.5") : (on ? "bg-white translate-x-3.5" : "bg-white translate-x-0.5")}`} />
                     </span>
                   </button>
                 ))}

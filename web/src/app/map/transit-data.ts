@@ -356,7 +356,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-501",
     name: "Queen",
-    shortName: "Qu",
+    shortName: "501",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -455,7 +455,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-503",
     name: "Kingston Rd",
-    shortName: "KR",
+    shortName: "503",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -507,7 +507,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-504",
     name: "King",
-    shortName: "Kg",
+    shortName: "504",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -559,7 +559,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-505",
     name: "Dundas",
-    shortName: "Du",
+    shortName: "505",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -613,7 +613,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-506",
     name: "Carlton",
-    shortName: "Ca",
+    shortName: "506",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -684,7 +684,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-507",
     name: "Long Branch",
-    shortName: "LB",
+    shortName: "507",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -722,7 +722,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-508",
     name: "Lake Shore",
-    shortName: "LS",
+    shortName: "508",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -797,7 +797,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-509",
     name: "Harbourfront",
-    shortName: "HF",
+    shortName: "509",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -821,7 +821,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-510",
     name: "Spadina",
-    shortName: "Sp",
+    shortName: "510",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -850,7 +850,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-511",
     name: "Bathurst",
-    shortName: "Ba",
+    shortName: "511",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
@@ -880,7 +880,7 @@ export const ROUTES: Route[] = [
   {
     id: "streetcar-512",
     name: "St Clair",
-    shortName: "SC",
+    shortName: "512",
     color: "#ED1C24",
     textColor: "#FFFFFF",
     type: "streetcar",
