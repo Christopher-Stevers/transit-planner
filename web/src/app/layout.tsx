@@ -4,6 +4,7 @@ import { type Metadata } from "next";
 import { Auth0Provider } from "@auth0/nextjs-auth0/client";
 import MobileWarningModal from "./_components/MobileWarningModal";
 import { Analytics } from "@vercel/analytics/next"
+import { SpeedInsights } from "@vercel/speed-insights/next"
 
 export const metadata: Metadata = {
   title: "Transit Planner",
@@ -33,6 +34,7 @@ export default function RootLayout({
           {children}
         </Auth0Provider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
