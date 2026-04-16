@@ -25,6 +25,7 @@
     "@tmcw/togeojson": "^7.1.2",
     "@types/mapbox__mapbox-gl-draw": "^1.4.9",
     "@types/mapbox-gl": "^3.4.1",
+    "@vercel/analytics": "^2.0.1",
     "gtfs-realtime-bindings": "^1.1.1",
     "jszip": "^3.10.1",
     "mapbox-gl": "^3.19.1",
