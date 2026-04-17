@@ -16,7 +16,6 @@ loadEnvConfig(projectRoot);
 
 await import("./src/env.js");
 
-/** @type {import("next").NextConfig} */
 const isDev = process.env.NODE_ENV !== "production";
 const enableUpgradeInsecureRequests =
   process.env.CSP_UPGRADE_INSECURE_REQUESTS === "true";
@@ -44,6 +43,7 @@ if (enableUpgradeInsecureRequests) {
 
 const csp = cspDirectives.join("; ");
 
+/** @type {import("next").NextConfig} */
 const config = {
   images: {
     remotePatterns: [
