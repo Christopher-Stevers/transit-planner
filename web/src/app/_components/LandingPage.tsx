@@ -128,7 +128,7 @@ function GreatCircleOrbit({ color, normal, speed, phases, r = 6.01 }: {
 }
 
 // ── Spinning globe ────────────────────────────────────────────────────────────
-function Globe() {
+function Globe({ isDark }: { isDark: boolean }) {
   const groupRef = useRef<THREE.Group>(null);
   const R = 6;
 
@@ -143,11 +143,14 @@ function Globe() {
     }
   });
 
+  // meshBasicMaterial multiplies `color` with the texture, so dark gray dims the globe
+  const globeColor = isDark ? "#383838" : "#ffffff";
+
   return (
     <group ref={groupRef} position={[0, -7.0, 0]}>
       <mesh>
         <sphereGeometry args={[R, 96, 96]} />
-        <meshBasicMaterial map={overlayTexture} />
+        <meshBasicMaterial map={overlayTexture} color={globeColor} />
       </mesh>
       {/* Transit lines are children of the globe → rotate with it → sit on surface */}
       <GreatCircleOrbit color="#d03527" normal={[0, 0, 1]}         speed={0.38} phases={[0, Math.PI * 2 / 3, Math.PI * 4 / 3]}                          r={6.01} />
@@ -160,13 +163,13 @@ function Globe() {
 }
 
 // ── 3D scene ──────────────────────────────────────────────────────────────────
-function Scene() {
+function Scene({ isDark }: { isDark: boolean }) {
   return (
     <>
       <ambientLight intensity={0.2} />
       <directionalLight position={[8, 4, 5]} intensity={3.5} color="#ffffff" />
       <directionalLight position={[-6, -2, -4]} intensity={0.1} color="#d0d8e8" />
-      <Globe />
+      <Globe isDark={isDark} />
     </>
   );
 }
@@ -176,6 +179,18 @@ export default function LandingPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    // Read initial dark mode state from the html class (set by layout.tsx inline script)
+    setIsDark(document.documentElement.classList.contains("dark"));
+    // Watch for dark mode toggled at runtime
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
   console.log("Setting ready")
@@ -220,7 +235,7 @@ export default function LandingPage() {
             style={{ background: "transparent" }}
           >
             <Suspense fallback={null}>
-              <Scene />
+              <Scene isDark={isDark} />
             </Suspense>
           </Canvas>
         </div>
@@ -260,7 +275,7 @@ export default function LandingPage() {
             Transit Planner
           </h1>
           <p
-            className="mb-6 select-none text-center font-normal text-stone-500"
+            className="mb-6 select-none text-center font-normal text-stone-500 dark:text-stone-200"
             style={{ fontSize: "clamp(1.7rem, 4vw, 2.6rem)", ...fadeUp("0.28s") }}
           >
             Plan at scale. Visualize city data in seconds.
