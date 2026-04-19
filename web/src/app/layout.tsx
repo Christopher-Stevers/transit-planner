@@ -3,6 +3,7 @@ import "~/styles/globals.css";
 import { type Metadata } from "next";
 import { Auth0Provider } from "@auth0/nextjs-auth0/client";
 import MobileWarningModal from "./_components/MobileWarningModal";
+import VercelRedirectModal from "./_components/VercelRedirectModal";
 import { Analytics } from "@vercel/analytics/next"
 import { SpeedInsights } from "@vercel/speed-insights/next"
 
@@ -31,6 +32,7 @@ export default function RootLayout({
       <body>
         <Auth0Provider>
           <MobileWarningModal />
+          <VercelRedirectModal />
           {children}
         </Auth0Provider>
         <Analytics />
