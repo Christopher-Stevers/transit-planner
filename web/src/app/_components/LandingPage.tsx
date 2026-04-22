@@ -213,7 +213,7 @@ export default function LandingPage() {
   });
 
   return (
-    <main className="overflow-x-hidden bg-white font-sans">
+    <main className={`overflow-x-hidden font-sans ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
 
       {/* ── Globe hero — clipped with rounded bottom corners ─────────────── */}
       {/* overflow:hidden + border-radius clips the canvas and overlay inside this box */}
@@ -223,8 +223,8 @@ export default function LandingPage() {
           minHeight: "100vh",
           overflow: "hidden",
           borderRadius: "0 0 48px 48px",
-          backgroundColor: "#ffffff",
-          boxShadow: "0 8px 48px rgba(0,0,0,0.10)",
+          backgroundColor: isDark ? "#1f2937" : "#ffffff",
+          boxShadow: isDark ? "0 8px 48px rgba(0,0,0,0.30)" : "0 8px 48px rgba(0,0,0,0.10)",
         }}
       >
 
@@ -235,7 +235,7 @@ export default function LandingPage() {
             backgroundImage: "url('/homepageoverlay.jpg')",
             backgroundSize: "cover",
             backgroundPosition: "center",
-            opacity: 0.3,
+            opacity: isDark ? 0.15 : 0.3,
           }}
         />
 
@@ -274,7 +274,7 @@ export default function LandingPage() {
 
           {/* Title */}
           <h1
-            className="mb-3 select-none text-center leading-none text-stone-800"
+            className="mb-3 select-none text-center leading-none text-stone-800 dark:text-stone-100"
             style={{
               fontFamily: '"Google Sans Display", "Google Sans", sans-serif',
               fontWeight: 700,
@@ -329,7 +329,7 @@ export default function LandingPage() {
       {/* ════════════════════════════════════════════════════════════════════
           Feature sections — cream background, same palette as docs
           ════════════════════════════════════════════════════════════════════ */}
-      <div style={{ backgroundColor: "#f8f7f4" }}>
+      <div style={{ backgroundColor: isDark ? "#111827" : "#f8f7f4" }}>
 
         {/* ── 1. AI Council — split layout (mockup left, text right) ───────── */}
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: "120px 64px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 80, alignItems: "center" }}>
@@ -376,13 +376,13 @@ export default function LandingPage() {
 
           {/* Text side */}
           <div>
-            <p style={{ fontSize: 11.5, fontWeight: 700, color: "#3730a3", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>
+            <p style={{ fontSize: 11.5, fontWeight: 700, color: isDark ? "#818cf8" : "#3730a3", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>
               AI Planning Council
             </p>
-            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(2rem, 3.5vw, 3.2rem)", fontWeight: 700, color: "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.08, marginBottom: 24 }}>
+            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(2rem, 3.5vw, 3.2rem)", fontWeight: 700, color: isDark ? "#ffffff" : "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.08, marginBottom: 24 }}>
               Six agents.<br />One optimal route.
             </h2>
-            <p style={{ fontSize: 16, color: "#57534e", lineHeight: 1.8, marginBottom: 36 }}>
+            <p style={{ fontSize: 16, color: isDark ? "#d1d5db" : "#57534e", lineHeight: 1.8, marginBottom: 36 }}>
               A transit planner, cost analyst, NIMBY resident, PR director, and planning commission debate every stop — streaming live as they deliberate. The result is a route that's already been stress-tested.
             </p>
             <Link href="/map" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "14px 28px", borderRadius: 999, backgroundColor: "#0f0e17", color: "#ffffff", fontSize: 15, fontWeight: 600, textDecoration: "none", letterSpacing: "-0.01em" }}>
@@ -469,11 +469,11 @@ export default function LandingPage() {
           </div>
 
           <div>
-            <p style={{ fontSize: 11.5, fontWeight: 700, color: "#3730a3", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>Map Editor</p>
-            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(1.8rem, 3vw, 2.8rem)", fontWeight: 700, color: "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 20 }}>
+            <p style={{ fontSize: 11.5, fontWeight: 700, color: isDark ? "#818cf8" : "#3730a3", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>Map Editor</p>
+            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(1.8rem, 3vw, 2.8rem)", fontWeight: 700, color: isDark ? "#ffffff" : "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 20 }}>
               Draw any<br />corridor.
             </h2>
-            <p style={{ fontSize: 15.5, color: "#57534e", lineHeight: 1.8 }}>
+            <p style={{ fontSize: 15.5, color: isDark ? "#d1d5db" : "#57534e", lineHeight: 1.8 }}>
               Click to drop stops directly on the live TTC network. Subway, LRT, streetcar — sketch any corridor and watch your route come to life in real time, overlaid on every existing line.
             </p>
           </div>
@@ -482,11 +482,11 @@ export default function LandingPage() {
         {/* Feature B: GTFS (reversed — text left, mockup right) */}
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: "0 64px 100px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 80, alignItems: "center" }}>
           <div>
-            <p style={{ fontSize: 11.5, fontWeight: 700, color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>GTFS Round-Trip</p>
-            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(1.8rem, 3vw, 2.8rem)", fontWeight: 700, color: "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 20 }}>
+            <p style={{ fontSize: 11.5, fontWeight: 700, color: isDark ? "#22c55e" : "#16a34a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>GTFS Round-Trip</p>
+            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(1.8rem, 3vw, 2.8rem)", fontWeight: 700, color: isDark ? "#ffffff" : "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 20 }}>
               Planning-ready<br />from day one.
             </h2>
-            <p style={{ fontSize: 15.5, color: "#57534e", lineHeight: 1.8 }}>
+            <p style={{ fontSize: 15.5, color: isDark ? "#d1d5db" : "#57534e", lineHeight: 1.8 }}>
               Export your route as a valid GTFS ZIP — the industry standard for transit data — or import an existing feed to continue editing. Every sketch becomes a deliverable.
             </p>
           </div>
@@ -549,11 +549,11 @@ export default function LandingPage() {
           </div>
 
           <div>
-            <p style={{ fontSize: 11.5, fontWeight: 700, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>Population Data</p>
-            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(1.8rem, 3vw, 2.8rem)", fontWeight: 700, color: "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 20 }}>
+            <p style={{ fontSize: 11.5, fontWeight: 700, color: isDark ? "#ef4444" : "#dc2626", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>Population Data</p>
+            <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(1.8rem, 3vw, 2.8rem)", fontWeight: 700, color: isDark ? "#ffffff" : "#0f0e17", letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 20 }}>
               Every stop has a<br />catchment score.
             </h2>
-            <p style={{ fontSize: 15.5, color: "#57534e", lineHeight: 1.8 }}>
+            <p style={{ fontSize: 15.5, color: isDark ? "#d1d5db" : "#57534e", lineHeight: 1.8 }}>
               Population density and neighbourhood data are baked in. Each station shows an estimated catchment and the council uses it automatically — no spreadsheets required.
             </p>
           </div>
@@ -633,7 +633,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── 5. Footer — large brand text + links ─────────────────────────── */}
-        <footer style={{ borderTop: "1px solid #e8e4dc", padding: "72px 64px 48px" }}>
+        <footer style={{ borderTop: isDark ? "1px solid #374151" : "1px solid #e8e4dc", padding: "72px 64px 48px" }}>
           <div style={{ maxWidth: 1280, margin: "0 auto" }}>
             {/* Links row */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 40, marginBottom: 96 }}>
@@ -643,9 +643,9 @@ export default function LandingPage() {
                 { heading: "Legal", links: [{ label: "Privacy Policy", href: "/privacy" }, { label: "Terms", href: "/terms" }] },
               ].map(col => (
                 <div key={col.heading}>
-                  <p style={{ fontSize: 11.5, fontWeight: 700, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 16 }}>{col.heading}</p>
+                  <p style={{ fontSize: 11.5, fontWeight: 700, color: isDark ? "#9ca3af" : "#a8a29e", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 16 }}>{col.heading}</p>
                   {col.links.map(link => (
-                    <Link key={link.href} href={link.href} style={{ display: "block", fontSize: 14, color: "#57534e", textDecoration: "none", marginBottom: 10 }}>{link.label}</Link>
+                    <Link key={link.href} href={link.href} style={{ display: "block", fontSize: 14, color: isDark ? "#d1d5db" : "#57534e", textDecoration: "none", marginBottom: 10 }}>{link.label}</Link>
                   ))}
                 </div>
               ))}
@@ -653,14 +653,14 @@ export default function LandingPage() {
 
             {/* Large brand name — like the Flow footer */}
             <div style={{ overflow: "hidden" }}>
-              <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(5rem, 15vw, 14rem)", fontWeight: 700, color: "#0f0e17", letterSpacing: "-0.04em", lineHeight: 0.88, margin: "0 -4px" }}>
+              <h2 style={{ fontFamily: '"Google Sans Display", Georgia, serif', fontSize: "clamp(5rem, 15vw, 14rem)", fontWeight: 700, color: isDark ? "#ffffff" : "#0f0e17", letterSpacing: "-0.04em", lineHeight: 0.88, margin: "0 -4px" }}>
                 Transit Planner
               </h2>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 32, paddingTop: 24, borderTop: "1px solid #e8e4dc" }}>
-              <p style={{ fontSize: 12.5, color: "#a8a29e" }}>© Transit Planner 2026</p>
-              <p style={{ fontSize: 12.5, color: "#a8a29e" }}>Built at Hack Canada 2026</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 32, paddingTop: 24, borderTop: isDark ? "1px solid #374151" : "1px solid #e8e4dc" }}>
+              <p style={{ fontSize: 12.5, color: isDark ? "#9ca3af" : "#a8a29e" }}>© Transit Planner 2026</p>
+              <p style={{ fontSize: 12.5, color: isDark ? "#9ca3af" : "#a8a29e" }}>Built at Hack Canada 2026</p>
             </div>
           </div>
         </footer>
