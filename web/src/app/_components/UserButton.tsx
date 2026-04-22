@@ -11,7 +11,7 @@ export function UserButton() {
   if (!user) {
     return (
       <a
-        href="/auth/login"
+        href="/auth/login?returnTo=/map"
         className="pointer-events-auto flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3.5 py-2 text-sm font-medium text-stone-700 shadow-sm transition-colors hover:bg-stone-50"
       >
         <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

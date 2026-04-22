@@ -179,6 +179,7 @@ export function TransitMap() {
   const [selectedGeneratedStop, setSelectedGeneratedStop] = useState<string | null>(null);
   const [disabledStops, setDisabledStops] = useState<Set<string>>(new Set());
   const [showCanadaPop, setShowCanadaPop] = useState(false);
+  const [canadaPopLoading, setCanadaPopLoading] = useState(false);
   const [isBirdsEye, setIsBirdsEye] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [drawMode, setDrawMode] = useState<DrawMode>("normal");
@@ -3877,27 +3878,27 @@ export function TransitMap() {
 
           {showSettingsMenu && (
             <div className="max-h-[calc(75vh-5rem)] overflow-y-auto absolute right-0 top-full mt-1.5 w-60 rounded-xl border border-[#D7D7D7] bg-white shadow-lg z-30">
-              {/* Account section 
+              {/* Account section */}
               <div className="px-4 py-3 border-b border-stone-100">
                 {authLoading ? (
                   <div className="h-8 w-full animate-pulse rounded-lg bg-stone-100" />
                 ) : authUser ? (
                   <div className="flex items-center gap-2.5">
                     {authUser.picture ? (
-                      <Image src={authUser.picture} alt={authUser.name ?? "User"} width={28} height={28} className="h-7 w-7 rounded-full object-cover shrink-0" />
+                      <Image src={authUser.picture} alt={authUser.name ?? "User"} width={32} height={32} className="h-8 w-8 rounded-full object-cover shrink-0" />
                     ) : (
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-600">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-600">
                         {(authUser.name ?? authUser.email ?? "U")[0]?.toUpperCase()}
                       </div>
                     )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-stone-800">{authUser.name ?? authUser.email}</p>
-                      <a href="/auth/logout" className="text-xs text-stone-400 hover:text-stone-600 transition-colors">Sign out</a>
+                    <div className="min-w-0 flex-1 flex flex-col justify-center">
+                      <p className="truncate text-sm font-medium text-stone-800 leading-none">{authUser.name ?? authUser.email}</p>
+                      <a href="/auth/logout" className="text-xs text-stone-400 hover:text-stone-600 transition-colors leading-none mt-0.5">Sign out</a>
                     </div>
                   </div>
-                ) : <></>: (
+                ) : (
                   <a
-                    href="/auth/login"
+                    href="/auth/login?returnTo=/map"
                     className="flex w-full items-center gap-2 rounded-lg bg-stone-800 px-3 py-2 text-sm font-medium text-white hover:bg-stone-700 transition-colors"
                   >
                     <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -3905,13 +3906,23 @@ export function TransitMap() {
                     </svg>
                     Sign in
                   </a>
-                )*/}
+                )}
+              </div>
 
               {/* Map layers */}
               <div className="border-b border-stone-100 py-3">
                 <p className="px-4 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-stone-300">Map layers</p>
                 {([
-                  ["Canada pop density", showCanadaPop, () => setShowCanadaPop((v) => !v), "amber", true] as const,
+                  ["Canada pop density", showCanadaPop, async () => {
+    if (canadaPopLoading) return;
+    const newValue = !showCanadaPop;
+    setShowCanadaPop(newValue);
+    if (newValue) {
+      setCanadaPopLoading(true);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setCanadaPopLoading(false);
+    }
+  }, "amber", true] as const,
                   ["Coverage zones", showCoverageZones, () => setShowCoverageZones((v) => !v), "sky", false] as const,
                   ["Service heatmap", showServiceHeatmap, () => setShowServiceHeatmap((v) => !v), "orange", false] as const,
                   ["Live vehicles", showLiveVehicles, () => setShowLiveVehicles((v) => !v), "emerald", false] as const,
@@ -3919,11 +3930,14 @@ export function TransitMap() {
                   ["Catchment circles", showCatchment, () => setShowCatchment((v) => !v), "emerald", false] as const,
                   ["Disruption zones", showDisruption, () => setShowDisruption((v) => !v), "rose", false] as const,
                   ["Measure distance", measureMode, () => setMeasureMode((v) => !v), "amber", false] as const,
-                ] as [string, boolean, () => void, string, boolean][]).map(([label, on, toggle, , beta]) => (
-                  <button key={label} onClick={toggle} className="flex w-full items-center justify-between px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition-colors">
+                ] as [string, boolean, () => void | Promise<void>, string, boolean][]).map(([label, on, toggle, , beta]) => (
+                  <button key={label} onClick={() => (toggle as () => Promise<void>)()} className="flex w-full items-center justify-between px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition-colors">
                     <span className="flex items-center gap-1.5">
                       {label}
-                      {beta && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 uppercase tracking-wide">beta</span>}
+                      {label === "Canada pop density" && canadaPopLoading && (
+                        <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-stone-300 border-t-stone-500" />
+                      )}
+                      {beta && !(label === "Canada pop density" && canadaPopLoading) && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 uppercase tracking-wide">beta</span>}
                     </span>
                     <span className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${highContrast ? (on ? "bg-yellow-400" : "bg-black ring-2 ring-white") : (on ? "bg-stone-700" : "bg-stone-200")}`}>
                       <span className={`absolute top-0.5 h-3 w-3 rounded-full shadow transition-transform ${highContrast ? (on ? "bg-black translate-x-3.5" : "bg-[#ffffff] translate-x-0.5") : (on ? "bg-white translate-x-3.5" : "bg-white translate-x-0.5")}`} />
