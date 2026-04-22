@@ -2,7 +2,7 @@ import Link from "next/link";
 import { InfoNav } from "../_components/InfoNav";
 import { InfoFooter } from "../_components/InfoFooter";
 
-const LAST_UPDATED = "March 16, 2026";
+const LAST_UPDATED = "April 22, 2026";
 
 const privacySections = [
   {
@@ -32,7 +32,7 @@ const privacySections = [
           },
           {
             label: "Usage data",
-            desc: "Basic logs needed to operate and secure the service — for example, request metadata and error logs.",
+            desc: "Basic logs and product analytics used to operate, secure, and improve the service — for example, request metadata, error logs, page loads, feature usage, overlay toggles, lines created, stations placed, portals added, import/export actions, and analysis-tool activity.",
           },
         ].map((item) => (
           <div
@@ -67,6 +67,7 @@ const privacySections = [
         {[
           "Provide core functionality — map editing, imports/exports, AI-assisted workflows.",
           "Maintain session history and recover work, where enabled.",
+          "Measure product usage and understand which tools are used most often, such as route generation, council workflows, overlays, and network-building actions.",
           "Monitor performance, troubleshoot errors, and prevent abuse.",
         ].map((item, i) => (
           <li key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -96,6 +97,11 @@ const privacySections = [
               label: "Authentication",
               desc: "Sign-in can be handled by an identity provider (e.g., Auth0). Your profile data is managed by that provider.",
               color: "#d97706", bg: "#fffbeb",
+            },
+            {
+              label: "Analytics",
+              desc: "If analytics are enabled for a deployment, usage events may be sent to Mixpanel. These events can include page visits, feature usage, counts of lines and stations in a plan, station-placement and line-creation actions, analysis-tool usage, and related product interaction metadata.",
+              color: "#16a34a", bg: "#f0fdf4",
             },
             {
               label: "AI services",
@@ -145,6 +151,25 @@ const privacySections = [
   },
   {
     number: "6",
+    title: "Analytics, Cookies, and Similar Technologies",
+    content: (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ fontSize: 14.5, color: "#57534e", lineHeight: 1.75 }}>
+          Hosted deployments may use analytics and browser storage technologies to understand how the app is used and
+          to keep certain preferences or sessions working correctly. Where Mixpanel is enabled, the app may store a
+          browser identifier and record product events tied to app usage.
+        </p>
+        <p style={{ fontSize: 14.5, color: "#57534e", lineHeight: 1.75 }}>
+          Depending on configuration, analytics events may include items such as page loads, feature toggles, route
+          generation requests, council-tool activity, imports and exports, total lines and stations in a project,
+          lines created, stations moved or placed, portals added, and related interaction metadata. If a user is
+          signed in, analytics may also be associated with that account identifier.
+        </p>
+      </div>
+    ),
+  },
+  {
+    number: "7",
     title: "Security",
     content: (
       <p style={{ fontSize: 14.5, color: "#57534e", lineHeight: 1.75 }}>
@@ -155,7 +180,24 @@ const privacySections = [
     ),
   },
   {
-    number: "7",
+    number: "8",
+    title: "Your Choices",
+    content: (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ fontSize: 14.5, color: "#57534e", lineHeight: 1.75 }}>
+          Your choices depend on the deployment you are using. Local and self-hosted deployments may allow the
+          operator to disable analytics entirely. Hosted deployments may also offer browser controls, privacy tools,
+          or account settings that affect analytics and stored data.
+        </p>
+        <p style={{ fontSize: 14.5, color: "#57534e", lineHeight: 1.75 }}>
+          If you want data deleted, exported, or corrected, contact the operator of your deployment. If you run
+          Transit Planner yourself, you control those choices directly.
+        </p>
+      </div>
+    ),
+  },
+  {
+    number: "9",
     title: "Contact",
     content: (
       <p style={{ fontSize: 14.5, color: "#57534e", lineHeight: 1.75 }}>
@@ -203,7 +245,7 @@ export default function PrivacyPage() {
             </h1>
           </div>
           <p style={{ fontSize: 15, color: "#78716c", maxWidth: 560 }}>
-            How Transit Planner handles information in a typical deployment.
+            How Transit Planner handles information, including analytics and product usage tracking, in a typical deployment.
           </p>
           <p style={{ fontSize: 12, color: "#a8a29e", marginTop: 10 }}>Last updated: {LAST_UPDATED}</p>
         </div>
@@ -224,8 +266,8 @@ export default function PrivacyPage() {
             <path d="M12 9v4M12 17h.01" stroke="#d97706" strokeWidth="2" strokeLinecap="round" />
           </svg>
           <p style={{ fontSize: 13.5, color: "#92400e", lineHeight: 1.65, margin: 0 }}>
-            <strong>Note:</strong> This document is a policy template intended for a typical deployment and should
-            be reviewed by counsel for your organization's specific needs.
+            <strong>Note:</strong> This document reflects the current app behavior, including analytics instrumentation,
+            but it should still be reviewed by counsel for your organization's specific deployment and legal needs.
           </p>
         </div>
 
